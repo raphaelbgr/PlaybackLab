@@ -66,6 +66,32 @@ npm run test       # Run tests
 npm run typecheck  # TypeScript check
 ```
 
+## Development Server Management
+
+**IMPORTANT:** The user manages the dev server. Do NOT start/stop the dev server yourself.
+
+### Ports Configuration
+- WXT Dev Server: **8565**
+- Vite HMR Server: **8566**
+
+### User Commands
+The user will run these commands manually:
+```bash
+npm run dev   # Starts dev server on port 8565/8566
+# Press Ctrl+C to stop
+```
+
+### How to Access PlaybackLab
+1. Run `npm run dev` to start the extension in dev mode
+2. A Chrome window will open with the extension loaded
+3. Open Chrome DevTools (F12 or right-click → Inspect)
+4. Look for the **"PlaybackLab"** tab in DevTools tabs
+5. If hidden, click `>>` at the end of the tab bar
+
+### Testing Streams
+- Quick test URLs are available in the Streams tab ("Try:" buttons)
+- Or paste any `.m3u8` (HLS) or `.mpd` (DASH) URL and click Load
+
 ## MVP Features (v1.0)
 
 1. Stream URL detection (webRequest API)
@@ -74,6 +100,180 @@ npm run typecheck  # TypeScript check
 4. Audio tracks display
 5. Basic error reporting
 6. DevTools panel UI
+
+## Coding Standards
+
+### DRY Principle - Shared Utilities
+
+**ALWAYS extract common logic to shared utility files.** Never duplicate code across components.
+
+Location: `src/shared/utils/`
+
+Current utilities:
+- `stringUtils.ts` - String manipulation (safeUpperCase, formatBitrate, formatDuration, etc.)
+- `copyAsCurl.ts` - Clipboard and cURL generation (with permission policy fallbacks)
+- `chromeApiSafe.ts` - Safe Chrome API wrappers (handles closed tabs, invalid contexts)
+- `errorExplanations.ts` - Error code explanations
+- `streamHealthScore.ts` - Health score calculations
+
+**Rules:**
+1. If the same logic appears in 2+ places, extract it to a shared utility
+2. All utility functions must have null-safety checks built in
+3. Export small, focused functions (Single Responsibility)
+4. Add JSDoc comments for all exported functions
+5. Write unit tests for utility functions
+
+### Use Battle-Tested Open Source Libraries
+
+**ALWAYS search for and use well-known, battle-tested open source libraries** instead of writing custom implementations for common tasks.
+
+**Before implementing any common functionality:**
+1. Search npm for existing solutions
+2. Prefer libraries with: high download counts, active maintenance, good TypeScript support
+3. Check bundle size impact (use bundlephobia.com)
+
+**Preferred libraries for common tasks:**
+- Date/time: `date-fns` (already installed)
+- HTTP requests: `fetch` API or `axios`
+- State management: `zustand` (already installed)
+- Validation: `zod` or `yup`
+- UUID generation: `uuid` or `nanoid`
+- Deep cloning: `structuredClone` (native) or `lodash-es/cloneDeep`
+- Debounce/throttle: `lodash-es/debounce` or `use-debounce`
+- URL parsing: Native `URL` API
+- Manifest parsing: `m3u8-parser`, `mpd-parser` (already installed)
+
+**Do NOT reinvent:**
+- Date formatting/parsing
+- Deep object comparison/cloning
+- Debounce/throttle
+- UUID generation
+- URL manipulation
+- Cryptographic functions
+
+### Chrome Extension API Safety
+
+**ALWAYS use safe wrappers for Chrome APIs** that can fail when tabs are closed or contexts are invalidated.
+
+Location: `src/shared/utils/chromeApiSafe.ts`
+
+**Available safe wrappers:**
+- `safeGetTab(tabId)` - Returns null if tab doesn't exist (instead of throwing)
+- `safeSendTabMessage(tabId, message)` - Returns null if tab/content script unavailable
+- `safeSendRuntimeMessage(message)` - Returns null if extension context invalid
+- `safeExecuteScript(tabId, func)` - Returns null if script injection fails
+- `safeQueryTabs(queryInfo)` - Returns empty array on failure (with caching)
+- `checkRuntimeError()` - Clears and returns chrome.runtime.lastError
+- `isExtensionContextValid()` - Checks if extension context is still valid
+
+**Common errors handled:**
+- "No tab with id: X" - Tab was closed before API call completed
+- "Could not establish connection" - Content script not loaded
+- "The message port closed" - Receiving end doesn't exist
+- "Extension context invalidated" - Extension was reloaded/updated
+
+**Rules:**
+1. **NEVER** use `chrome.tabs.get()` directly - use `safeGetTab()`
+2. **NEVER** use `chrome.tabs.sendMessage()` without checking tab exists first
+3. **ALWAYS** handle `chrome.runtime.lastError` after callback-style APIs
+4. For clipboard operations, use `copyToClipboard()` from `copyAsCurl.ts` (handles permission policy restrictions)
+
+**Example:**
+```typescript
+// BAD - will throw "No tab with id" if tab closed
+chrome.tabs.get(tabId).then(tab => { ... });
+
+// GOOD - returns null safely
+const tab = await safeGetTab(tabId);
+if (tab) {
+  // Tab exists, proceed
+}
+```
+
+## DevTools Panel CSS & Scrolling (CRITICAL)
+
+DevTools panels run in a constrained iframe-like environment with different behavior than regular web pages.
+
+### Key Rules for Scrollable Layouts
+
+1. **Use absolute positioning for root layout:**
+```css
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+.app {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+```
+
+2. **For scrollable content areas within flex layouts:**
+```css
+.scroll-container {
+  flex: 1;
+  min-height: 0;  /* CRITICAL - allows flex item to shrink */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+```
+
+3. **NEVER use `overflow: hidden` on expandable/collapsible elements** - it clips content when items expand.
+
+4. **Add `flex-shrink: 0` to fixed elements** (headers, input bars) that should not shrink.
+
+5. **Add `min-height: 0` at EVERY level of nested flex containers** - flex items default to `min-height: auto` which prevents shrinking below content size.
+
+### Common Pitfalls
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Scroll not working | Missing `min-height: 0` on flex ancestors | Add to every flex parent |
+| Content disappearing | `overflow: hidden` on parent | Remove or use `overflow: visible` |
+| Content clipped when expanded | `overflow: hidden` on expandable element | Remove `overflow: hidden` |
+| `height: 100%` not working | Parent has no explicit height | Use absolute positioning instead |
+| `100vh` not working | DevTools panel viewport differs | Use absolute positioning with `top/bottom: 0` |
+
+### Testing Scroll Issues
+
+1. Create a test HTML file that mirrors the extension's structure
+2. Serve it locally and compare behavior
+3. The test page may work while extension doesn't - DevTools has different constraints
+4. **Always rebuild with `npm run build`** after CSS changes - the dist folder needs updating
+
+### Hierarchy Checklist
+
+For a scrollable list in DevTools panel, ensure this chain:
+```
+html (height: 100%)
+└── body (height: 100%)
+    └── #root (position: absolute, fills viewport)
+        └── .app (position: absolute, flex column)
+            └── header (flex-shrink: 0)
+            └── .main (flex: 1, position: relative, min-height: 0)
+                └── .panel (position: absolute, fills parent, flex)
+                    └── .list-container (flex: 1, flex column, min-height: 0)
+                        └── .scroll-area (flex: 1, min-height: 0, overflow-y: auto)
+```
 
 ## Research Documentation
 

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scroll Test - PlaybackLab Layout</title>
+  <style>
+    :root {
+      --bg-primary: #1e1e1e;
+      --bg-secondary: #252526;
+      --bg-tertiary: #2d2d2d;
+      --text-primary: #cccccc;
+      --text-secondary: #858585;
+      --border: #3c3c3c;
+      --accent: #007acc;
+      --hls-color: #4fc3f7;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body, #root {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 12px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    /* Exact same structure as extension */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .tab-bar {
+      display: flex;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 8px 16px;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tab.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--accent);
+    }
+
+    /* Main - exact copy */
+    .main {
+      flex: 1;
+      overflow: hidden;
+      padding: 12px;
+      min-height: 0;
+    }
+
+    /* Streams Panel - exact copy */
+    .streams-panel {
+      display: flex;
+      height: 100%;
+      gap: 0;
+      min-height: 0;
+    }
+
+    /* Streams List Panel - Pure Flexbox */
+    .streams-list-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-primary);
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .stream-input-bar {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin: 12px;
+    }
+
+    /* Stream Cards - THE scrollable area */
+    .stream-cards {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 0 12px 12px 12px;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .stream-group {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .stream-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+
+    .stream-group-items {
+      border-top: 1px solid var(--border);
+      background: var(--bg-tertiary);
+    }
+
+    .stream-group-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px 8px 32px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stream-group-item:last-child {
+      border-bottom: none;
+    }
+
+    .type-badge {
+      background: var(--hls-color);
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .details-panel {
+      flex: 0 0 350px;
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border);
+      padding: 12px;
+      overflow-y: auto;
+    }
+
+    .debug-info {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.9);
+      color: #0f0;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 11px;
+      z-index: 9999;
+      border-radius: 4px;
+      max-width: 200px;
+    }
+
+    .debug-info div {
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="app">
+      <header class="header">
+        <div>
+          <strong>PlaybackLab</strong>
+          <span style="margin-left: 12px; color: var(--text-secondary);">15 streams detected</span>
+        </div>
+        <button style="padding: 4px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; cursor: pointer;">Clear All</button>
+      </header>
+
+      <div class="tab-bar">
+        <button class="tab active">Streams</button>
+        <button class="tab">Manifest</button>
+        <button class="tab">Metrics</button>
+        <button class="tab">Health</button>
+        <button class="tab">DRM</button>
+        <button class="tab">Network</button>
+        <button class="tab">Errors</button>
+        <button class="tab">Export</button>
+      </div>
+
+      <main class="main">
+        <div class="streams-panel">
+          <div class="streams-list-panel">
+            <div class="stream-input-bar">
+              <input type="text" placeholder="Enter HLS or DASH stream URL..." style="padding: 8px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px;">
+              <div style="display: flex; gap: 8px;">
+                <button style="flex: 1; padding: 8px; background: var(--accent); border: none; color: white; border-radius: 4px; cursor: pointer;">Load</button>
+                <button style="flex: 1; padding: 8px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; cursor: pointer;">Scan Page</button>
+              </div>
+            </div>
+
+            <div class="stream-cards" id="streamCards">
+              <!-- Cards generated by JS -->
+            </div>
+          </div>
+
+          <div class="details-panel">
+            <h3 style="margin-bottom: 12px;">Stream Details</h3>
+            <p style="color: var(--text-secondary);">Select a stream to view details</p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="debug-info" id="debugInfo">Loading...</div>
+
+  <script>
+    const container = document.getElementById('streamCards');
+
+    const streams = [
+      { name: 'Big Buck Bunny', file: 'master.m3u8', host: 'test-streams.mux.dev', count: 4, expanded: true },
+      { name: 'Sintel', file: 'playlist.m3u8', host: 'bitmovin.com', count: 3, expanded: true },
+      { name: 'Tears of Steel', file: 'index.m3u8', host: 'akamaized.net', count: 2, expanded: true },
+      { name: 'Elephant Dream', file: 'stream.m3u8', host: 'cloudfront.net', count: 5, expanded: false },
+      { name: 'Free Channels', file: 'playlist.m3u8', host: 'freecast.telos.indicue.com', count: 6, expanded: false },
+      { name: 'Live News', file: 'live.m3u8', host: 'news-cdn.com', count: 2, expanded: false },
+      { name: 'Sports Stream', file: 'hls.m3u8', host: 'sports.cdn.net', count: 4, expanded: false },
+      { name: 'Movie Channel', file: 'movie.m3u8', host: 'movies.streaming.com', count: 3, expanded: false },
+    ];
+
+    streams.forEach((stream) => {
+      const card = document.createElement('div');
+      card.className = 'stream-group';
+      card.innerHTML = `
+        <div class="stream-group-header" onclick="this.nextElementSibling?.classList.toggle('hidden'); this.querySelector('.arrow').textContent = this.nextElementSibling?.classList.contains('hidden') ? '▶' : '▼'">
+          <span class="arrow" style="color: var(--text-secondary);">${stream.expanded ? '▼' : '▶'}</span>
+          <span class="type-badge">HLS</span>
+          <div style="flex: 1;">
+            <div style="font-weight: 500;">${stream.name}</div>
+            <div style="font-size: 11px; color: var(--text-secondary);">${stream.file}</div>
+          </div>
+          <span style="background: var(--accent); color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px;">${stream.count}</span>
+        </div>
+        <div class="stream-group-items ${stream.expanded ? '' : 'hidden'}" style="${stream.expanded ? '' : 'display: none;'}">
+          ${Array(stream.count).fill(0).map((_, j) => `
+            <div class="stream-group-item">
+              <span style="color: var(--text-secondary);">#${j + 1}</span>
+              <span style="flex: 1; font-size: 11px; overflow: hidden; text-overflow: ellipsis;">${stream.host}/variant${j + 1}.m3u8</span>
+              <span style="font-size: 10px; color: var(--text-secondary);">just now</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      container.appendChild(card);
+    });
+
+    // Debug
+    function updateDebug() {
+      const cards = document.getElementById('streamCards');
+      const debug = document.getElementById('debugInfo');
+      const computed = window.getComputedStyle(cards);
+
+      debug.innerHTML = `
+        <div><b>stream-cards:</b></div>
+        <div>scrollH: ${cards.scrollHeight}px</div>
+        <div>clientH: ${cards.clientHeight}px</div>
+        <div>scrollTop: ${cards.scrollTop}px</div>
+        <div>overflow-y: ${computed.overflowY}</div>
+        <div>flex: ${computed.flex}</div>
+        <div>min-height: ${computed.minHeight}</div>
+        <div><b style="color: ${cards.scrollHeight > cards.clientHeight ? '#0f0' : '#f00'}">Can scroll: ${cards.scrollHeight > cards.clientHeight ? 'YES' : 'NO'}</b></div>
+      `;
+    }
+
+    setInterval(updateDebug, 500);
+    updateDebug();
+
+    // Toggle handler
+    document.querySelectorAll('.stream-group-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const items = header.nextElementSibling;
+        if (items) {
+          const isHidden = items.style.display === 'none';
+          items.style.display = isHidden ? '' : 'none';
+          header.querySelector('.arrow').textContent = isHidden ? '▼' : '▶';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

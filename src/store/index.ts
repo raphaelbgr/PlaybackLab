@@ -4,9 +4,17 @@
  */
 
 import { create } from 'zustand';
-import type { StreamInfo } from '../core/interfaces/IStreamDetector';
+import type { StreamInfo, PlaybackState } from '../core/interfaces/IStreamDetector';
 import type { ParsedManifest } from '../core/interfaces/IManifestParser';
 import type { PlaybackMetrics } from '../core/interfaces/IMetricsCollector';
+
+export interface PlaybackUpdate {
+  playbackState?: PlaybackState;
+  hasAudio?: boolean;
+  audioMuted?: boolean;
+  volume?: number;
+  isActive?: boolean;
+}
 
 export interface DetectedStream {
   info: StreamInfo;
@@ -36,6 +44,8 @@ export interface AppState {
   setActiveTab: (tab: AppState['activeTab']) => void;
   togglePanel: () => void;
   clearAll: () => void;
+  updateStreamPlayback: (streamUrl: string, update: PlaybackUpdate) => void;
+  updateAllPlaybackStates: (streams: StreamInfo[]) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -48,6 +58,20 @@ export const useStore = create<AppState>((set) => ({
   // Actions
   addStream: (stream) =>
     set((state) => {
+      // Check if stream with same URL already exists (dedupe)
+      for (const [existingId, existingStream] of state.streams) {
+        if (existingStream.info.url === stream.url) {
+          // Update existing stream instead of adding duplicate
+          const newStreams = new Map(state.streams);
+          newStreams.set(existingId, {
+            ...existingStream,
+            info: { ...existingStream.info, ...stream, id: existingId },
+          });
+          return { streams: newStreams };
+        }
+      }
+
+      // New stream - add it
       const newStreams = new Map(state.streams);
       newStreams.set(stream.id, {
         info: stream,
@@ -122,6 +146,67 @@ export const useStore = create<AppState>((set) => ({
     set({
       streams: new Map(),
       selectedStreamId: null,
+    }),
+
+  updateStreamPlayback: (streamUrl, update) =>
+    set((state) => {
+      const newStreams = new Map(state.streams);
+      let updated = false;
+
+      for (const [id, stream] of newStreams) {
+        // Match by URL (similar to background script matching)
+        if (
+          stream.info.url === streamUrl ||
+          stream.info.url.includes(streamUrl) ||
+          streamUrl.includes(stream.info.url)
+        ) {
+          newStreams.set(id, {
+            ...stream,
+            info: {
+              ...stream.info,
+              playbackState: update.playbackState ?? stream.info.playbackState,
+              hasAudio: update.hasAudio ?? stream.info.hasAudio,
+              audioMuted: update.audioMuted ?? stream.info.audioMuted,
+              volume: update.volume ?? stream.info.volume,
+              isActive: update.isActive ?? stream.info.isActive,
+            },
+          });
+          updated = true;
+        }
+      }
+
+      return updated ? { streams: newStreams } : state;
+    }),
+
+  updateAllPlaybackStates: (updatedStreams) =>
+    set((state) => {
+      const newStreams = new Map(state.streams);
+      let updated = false;
+
+      for (const updatedInfo of updatedStreams) {
+        for (const [id, stream] of newStreams) {
+          if (
+            stream.info.url === updatedInfo.url ||
+            stream.info.url.includes(updatedInfo.url) ||
+            updatedInfo.url.includes(stream.info.url)
+          ) {
+            newStreams.set(id, {
+              ...stream,
+              info: {
+                ...stream.info,
+                playbackState: updatedInfo.playbackState,
+                hasAudio: updatedInfo.hasAudio,
+                audioMuted: updatedInfo.audioMuted,
+                volume: updatedInfo.volume,
+                isActive: updatedInfo.isActive,
+              },
+            });
+            updated = true;
+          }
+        }
+      }
+
+      return updated ? { streams: newStreams } : state;
     }),
 }));
 

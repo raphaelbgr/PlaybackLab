@@ -8,6 +8,7 @@ import { useStore, type DetectedStream } from '../../../store';
 import { hlsParser } from '../../../core/services/HlsManifestParser';
 import { dashParser } from '../../../core/services/DashManifestParser';
 import type { ParsedManifest } from '../../../core/interfaces/IManifestParser';
+import { safeUpperCase, formatBitrate, formatDuration } from '../../../shared/utils/stringUtils';
 
 interface Props {
   stream: DetectedStream | null;
@@ -118,7 +119,7 @@ function ParsedManifestView({ manifest }: { manifest: ParsedManifest }) {
       <div className="manifest-info">
         <div className="info-card">
           <div className="info-card-title">Type</div>
-          <div className="info-card-value">{manifest.type.toUpperCase()}</div>
+          <div className="info-card-value">{safeUpperCase(manifest.type)}</div>
         </div>
         <div className="info-card">
           <div className="info-card-title">Duration</div>
@@ -205,20 +206,4 @@ function RawManifest({ content }: { content: string }) {
   );
 }
 
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  }
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function formatBitrate(bps: number): string {
-  if (bps >= 1_000_000) {
-    return `${(bps / 1_000_000).toFixed(1)} Mbps`;
-  }
-  return `${(bps / 1_000).toFixed(0)} Kbps`;
-}
+// formatDuration and formatBitrate are now imported from shared/utils/stringUtils

@@ -4,6 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PlaybackLab</title>
+  <style>
+    /* Critical styles for DevTools panel - absolute positioning approach */
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      overflow: hidden !important;
+      position: relative !important;
+    }
+    #root {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      overflow: hidden !important;
+    }
+  </style>
 </head>
 <body>
   <div id="root"></div>

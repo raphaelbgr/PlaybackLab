@@ -16,6 +16,17 @@ export default defineConfig({
     host_permissions: ['<all_urls>'],
     devtools_page: 'devtools.html',
   },
+  // Dev server configuration
+  dev: {
+    server: {
+      port: 8565,
+    },
+  },
+  vite: () => ({
+    server: {
+      port: 8566,
+    },
+  }),
   webExt: {
     startUrls: ['https://bitmovin.com/demos/stream-test'],
   },
