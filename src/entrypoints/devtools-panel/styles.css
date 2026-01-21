@@ -3460,6 +3460,36 @@ body {
   color: var(--mse-color);
 }
 
+/* NEW badge for recently detected streams */
+.new-badge {
+  font-size: 8px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+  color: #fff;
+  letter-spacing: 0.5px;
+  animation: newBadgePulse 2s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.new-badge.mini {
+  font-size: 7px;
+  padding: 1px 4px;
+}
+
+@keyframes newBadgePulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+  }
+}
+
 .status-badge {
   font-size: 9px;
   font-weight: 600;
@@ -4501,7 +4531,7 @@ body {
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
+  overflow: visible; /* Changed from hidden to allow tooltips to escape */
 }
 
 .overview-section .overview-grid {
@@ -5091,7 +5121,7 @@ body {
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
+  overflow: visible; /* Changed from hidden to allow tooltips to escape */
 }
 
 .manifest-section > .manifest-summary {

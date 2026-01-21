@@ -121,10 +121,24 @@ export class HlsManifestParser implements IManifestParser {
         : undefined,
     }));
 
+    // Determine if stream is live or VOD
+    // VOD indicators: #EXT-X-ENDLIST present, or #EXT-X-PLAYLIST-TYPE:VOD in raw content
+    // Live indicators: no endList AND no VOD playlist type
+    const hasEndList = manifest.endList === true;
+    // m3u8-parser doesn't expose playlistType directly, so check raw content
+    const isPlaylistTypeVod = content.includes('#EXT-X-PLAYLIST-TYPE:VOD');
+    const totalDuration = manifest.segments?.reduce((acc: number, s: any) => acc + (s.duration || 0), 0);
+
+    // It's VOD if:
+    // 1. Has #EXT-X-ENDLIST tag, OR
+    // 2. Has #EXT-X-PLAYLIST-TYPE:VOD
+    // It's Live if none of these conditions are met
+    const isLive = !hasEndList && !isPlaylistTypeVod;
+
     return {
       type: 'hls',
-      duration: manifest.segments?.reduce((acc: number, s: any) => acc + (s.duration || 0), 0),
-      isLive: !manifest.endList,
+      duration: totalDuration,
+      isLive,
       videoVariants,
       audioVariants,
       subtitles,

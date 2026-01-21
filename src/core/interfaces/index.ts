@@ -7,6 +7,5 @@
 
 export * from './IStreamDetector';
 export * from './IManifestParser';
-export * from './IMetricsCollector';
 export * from './IDrmInspector';
 export * from './IStreamRepository';

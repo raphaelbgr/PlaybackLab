@@ -4,12 +4,11 @@
  */
 
 import { useState } from 'react';
-import { useStore, useStreamsList, useSelectedStream } from '../../../store';
+import { useStreamsList, useSelectedStream } from '../../../store';
 import { safeUpperCase, typeToClassName } from '../../../shared/utils/stringUtils';
 
 interface ExportOptions {
   includeManifest: boolean;
-  includeMetrics: boolean;
   includeNetwork: boolean;
   includeDrm: boolean;
   format: 'json' | 'har' | 'csv';
@@ -20,7 +19,6 @@ export function ExportPanel() {
   const selectedStream = useSelectedStream();
   const [options, setOptions] = useState<ExportOptions>({
     includeManifest: true,
-    includeMetrics: true,
     includeNetwork: true,
     includeDrm: true,
     format: 'json',
@@ -62,20 +60,12 @@ export function ExportPanel() {
           segmentCount: selectedStream.manifest.segments.length,
         };
       }
-
-      if (options.includeMetrics && selectedStream.metrics.length > 0) {
-        exportData.metrics = {
-          samples: selectedStream.metrics.length,
-          data: selectedStream.metrics.slice(-100), // Last 100 samples
-        };
-      }
     } else {
       exportData.streams = streams.map((s) => ({
         url: s.info.url,
         type: s.info.type,
         detectedAt: new Date(s.info.detectedAt).toISOString(),
         hasManifest: !!s.manifest,
-        metricsCount: s.metrics.length,
       }));
     }
 
@@ -210,8 +200,6 @@ export function ExportPanel() {
   // Generate shareable URL
   const handleShare = () => {
     const data = generateExportData();
-    const compressed = btoa(JSON.stringify(data));
-    const shareUrl = `${window.location.origin}?debug=${compressed.slice(0, 100)}...`;
 
     // Copy to clipboard
     navigator.clipboard.writeText(JSON.stringify(data, null, 2));
@@ -257,15 +245,6 @@ export function ExportPanel() {
             />
             <span>Manifest Details</span>
             <span className="option-desc">Video/audio variants, segments, DRM info</span>
-          </label>
-          <label className="export-option">
-            <input
-              type="checkbox"
-              checked={options.includeMetrics}
-              onChange={(e) => setOptions({ ...options, includeMetrics: e.target.checked })}
-            />
-            <span>Playback Metrics</span>
-            <span className="option-desc">Buffer levels, bitrate, dropped frames</span>
           </label>
           <label className="export-option">
             <input

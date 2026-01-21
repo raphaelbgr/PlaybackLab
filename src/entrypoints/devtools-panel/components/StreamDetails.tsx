@@ -20,7 +20,6 @@ import {
   getAspectRatio,
   getResolutionTag,
   getAudioVariantTags,
-  type MuxedAudioInfo,
 } from '../../../shared/utils/videoTags';
 import { ErrorDisplay } from './ErrorDisplay';
 import { CopyButton } from './CopyButton';
@@ -30,7 +29,7 @@ interface StreamDetailsProps {
   stream: DetectedStream | null;
 }
 
-type DetailTab = 'overview' | 'manifest' | 'payload' | 'metrics' | 'drm' | 'errors';
+type DetailTab = 'overview' | 'manifest' | 'payload' | 'drm' | 'errors';
 
 // Hash function for URL-based storage keys
 function hashUrl(url: string): string {
@@ -173,12 +172,6 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
           Payload
         </button>
         <button
-          className={`details-tab ${activeTab === 'metrics' ? 'active' : ''}`}
-          onClick={() => handleTabChange('metrics')}
-        >
-          Metrics
-        </button>
-        <button
           className={`details-tab ${activeTab === 'drm' ? 'active' : ''}`}
           onClick={() => handleTabChange('drm')}
         >
@@ -211,7 +204,6 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
         {activeTab === 'overview' && <OverviewTab stream={stream} />}
         {activeTab === 'manifest' && <ManifestTab stream={stream} />}
         {activeTab === 'payload' && <PayloadTab stream={stream} />}
-        {activeTab === 'metrics' && <MetricsTab stream={stream} />}
         {activeTab === 'drm' && <DrmTab stream={stream} />}
         {activeTab === 'errors' && <ErrorsTab stream={stream} />}
       </div>
@@ -258,13 +250,17 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
     }
   }, [manifest, isLoading, stream.error, info.id, info.url, info.type, info.requestHeaders]);
 
-  // Basic info - always available
+  // Extract origin domain from URL
+  const getOriginDomain = (url: string): string => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return '—';
+    }
+  };
+
+  // Basic info - always available (removed redundant Type - already in header)
   const basicStats = [
-    {
-      label: 'Type',
-      value: safeUpperCase(info.type),
-      icon: '📺',
-    },
     {
       label: 'Status',
       value: info.playbackState ? capitalizeFirst(info.playbackState) : (info.isActive ? 'Active' : 'Detected'),
@@ -272,8 +268,13 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
     },
     {
       label: 'Audio',
-      value: info.hasAudio ? (info.audioMuted ? 'Muted' : 'Available') : '—',
+      value: info.hasAudio ? (info.audioMuted ? 'Muted' : 'Playing') : '—',
       icon: info.audioMuted ? '🔇' : '🔊',
+    },
+    {
+      label: 'Origin',
+      value: getOriginDomain(info.url),
+      icon: '🌐',
     },
   ];
 
@@ -1579,231 +1580,6 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
           <p>No manifest data available</p>
         </div>
       )}
-    </div>
-  );
-}
-
-// Buffer Health Indicator Component
-interface BufferHealthProps {
-  currentTime: number;
-  buffered: Array<{ start: number; end: number }>;
-  duration: number;
-}
-
-type BufferHealthState = 'critical' | 'warning' | 'good' | 'healthy';
-
-function getBufferHealth(bufferAhead: number): { state: BufferHealthState; label: string; color: string } {
-  if (bufferAhead < 2) {
-    return { state: 'critical', label: 'Critical', color: '#ef4444' }; // Red
-  }
-  if (bufferAhead < 5) {
-    return { state: 'warning', label: 'Warning', color: '#f59e0b' }; // Amber
-  }
-  if (bufferAhead < 10) {
-    return { state: 'good', label: 'Good', color: '#3b82f6' }; // Blue
-  }
-  return { state: 'healthy', label: 'Healthy', color: '#10b981' }; // Green
-}
-
-function BufferHealthIndicator({ currentTime, buffered, duration }: BufferHealthProps) {
-  // Calculate buffer ahead (time buffered beyond current playhead)
-  let bufferAhead = 0;
-  let bufferStart = currentTime;
-  let bufferEnd = currentTime;
-
-  if (buffered && buffered.length > 0) {
-    // Find the buffer range that contains current time
-    for (const range of buffered) {
-      if (range.start <= currentTime && range.end > currentTime) {
-        bufferStart = range.start;
-        bufferEnd = range.end;
-        bufferAhead = range.end - currentTime;
-        break;
-      }
-      // If we're before this range, use the first range
-      if (range.start > currentTime) {
-        bufferStart = range.start;
-        bufferEnd = range.end;
-        bufferAhead = 0;
-        break;
-      }
-    }
-  }
-
-  const health = getBufferHealth(bufferAhead);
-
-  // Calculate visual percentages for the buffer bar
-  // Scale based on a max display of 30 seconds for better visualization
-  const maxDisplayBuffer = 30;
-  const bufferPercent = Math.min((bufferAhead / maxDisplayBuffer) * 100, 100);
-
-  // Timeline position indicators (for VOD)
-  const playheadPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const bufferEndPercent = duration > 0 ? (bufferEnd / duration) * 100 : 0;
-
-  return (
-    <div className="buffer-health">
-      {/* Header with status */}
-      <div className="buffer-health-header">
-        <div className="buffer-health-title">
-          <span className="buffer-health-icon" style={{ color: health.color }}>
-            {health.state === 'critical' ? '⚠️' : health.state === 'warning' ? '⏳' : '✓'}
-          </span>
-          <span>Buffer Health</span>
-        </div>
-        <div className="buffer-health-status" style={{ backgroundColor: health.color }}>
-          {health.label}
-        </div>
-      </div>
-
-      {/* Main buffer bar */}
-      <div className="buffer-bar-container">
-        <div className="buffer-bar-label">
-          <span>0s</span>
-          <span className="buffer-ahead-value">{bufferAhead.toFixed(1)}s ahead</span>
-          <span>{maxDisplayBuffer}s</span>
-        </div>
-        <div className="buffer-bar">
-          <div
-            className="buffer-bar-fill"
-            style={{
-              width: `${bufferPercent}%`,
-              backgroundColor: health.color,
-            }}
-          />
-          {/* Threshold markers */}
-          <div className="buffer-threshold critical" style={{ left: `${(2 / maxDisplayBuffer) * 100}%` }} title="Critical: 2s" />
-          <div className="buffer-threshold warning" style={{ left: `${(5 / maxDisplayBuffer) * 100}%` }} title="Warning: 5s" />
-          <div className="buffer-threshold good" style={{ left: `${(10 / maxDisplayBuffer) * 100}%` }} title="Good: 10s" />
-        </div>
-      </div>
-
-      {/* Timeline view (for VOD) */}
-      {duration > 0 && (
-        <div className="buffer-timeline">
-          <div className="buffer-timeline-label">
-            <span>Timeline</span>
-            <span className="buffer-timeline-info">
-              {formatDuration(currentTime)} / {formatDuration(duration)}
-            </span>
-          </div>
-          <div className="buffer-timeline-bar">
-            {/* Buffered range */}
-            <div
-              className="buffer-timeline-buffered"
-              style={{
-                left: `${(bufferStart / duration) * 100}%`,
-                width: `${((bufferEnd - bufferStart) / duration) * 100}%`,
-              }}
-            />
-            {/* Playhead indicator */}
-            <div
-              className="buffer-timeline-playhead"
-              style={{ left: `${playheadPercent}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Buffer stats grid */}
-      <div className="buffer-stats">
-        <div className="buffer-stat">
-          <span className="buffer-stat-label">Ahead</span>
-          <span className="buffer-stat-value">{bufferAhead.toFixed(1)}s</span>
-        </div>
-        <div className="buffer-stat">
-          <span className="buffer-stat-label">Range</span>
-          <span className="buffer-stat-value">
-            {formatDuration(bufferStart)} - {formatDuration(bufferEnd)}
-          </span>
-        </div>
-        <div className="buffer-stat">
-          <span className="buffer-stat-label">Ranges</span>
-          <span className="buffer-stat-value">{buffered?.length || 0}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MetricsTab({ stream }: { stream: DetectedStream }) {
-  const metrics = stream.metrics || [];
-  const latestMetrics = metrics.length > 0 ? metrics[metrics.length - 1] : null;
-
-  if (!latestMetrics) {
-    return (
-      <div className="tab-empty">
-        <p>No metrics collected yet</p>
-        <p className="hint">Play the video to start collecting metrics</p>
-      </div>
-    );
-  }
-
-  // Calculate buffer ahead for the metric card
-  const bufferAhead = latestMetrics.buffered?.length > 0
-    ? latestMetrics.buffered[0].end - latestMetrics.currentTime
-    : 0;
-
-  return (
-    <div className="metrics-details">
-      {/* Buffer Health Indicator */}
-      <BufferHealthIndicator
-        currentTime={latestMetrics.currentTime}
-        buffered={latestMetrics.buffered || []}
-        duration={latestMetrics.duration}
-      />
-
-      <div className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-label">Current Time</div>
-          <div className="metric-value">{formatDuration(latestMetrics.currentTime)}</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">Duration</div>
-          <div className="metric-value">{formatDuration(latestMetrics.duration)}</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">Bitrate</div>
-          <div className="metric-value">{formatBitrate(latestMetrics.bitrate)}</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">Resolution</div>
-          <div className="metric-value">
-            {latestMetrics.resolution?.width || 0}x{latestMetrics.resolution?.height || 0}
-          </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">Dropped Frames</div>
-          <div className="metric-value">{latestMetrics.droppedFrames}</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">Bandwidth</div>
-          <div className="metric-value">{formatBitrate(latestMetrics.bandwidth)}</div>
-        </div>
-        {latestMetrics.latency !== undefined && (
-          <div className="metric-card">
-            <div className="metric-label">Latency</div>
-            <div className="metric-value">{latestMetrics.latency.toFixed(0)}ms</div>
-          </div>
-        )}
-      </div>
-
-      {/* Mini timeline */}
-      <div className="metrics-history">
-        <h4>Bitrate History ({metrics.length} samples)</h4>
-        <div className="mini-chart">
-          {metrics.slice(-30).map((m, i) => (
-            <div
-              key={i}
-              className="chart-bar"
-              style={{
-                height: `${(m.bitrate / Math.max(...metrics.map(x => x.bitrate))) * 100}%`,
-              }}
-              title={`${formatBitrate(m.bitrate)}`}
-            />
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

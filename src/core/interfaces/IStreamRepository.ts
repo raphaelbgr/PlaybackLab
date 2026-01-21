@@ -5,13 +5,11 @@
 
 import type { StreamInfo } from './IStreamDetector';
 import type { ParsedManifest } from './IManifestParser';
-import type { PlaybackMetrics } from './IMetricsCollector';
 import type { DrmSession, LicenseRequest, LicenseResponse } from './IDrmInspector';
 
 export interface StoredStream {
   info: StreamInfo;
   manifest?: ParsedManifest;
-  metrics: PlaybackMetrics[];
   drmSessions: DrmSession[];
   licenseRequests: LicenseRequest[];
   licenseResponses: LicenseResponse[];
@@ -56,11 +54,6 @@ export interface IStreamRepository {
    * Clear all stored streams
    */
   clear(): Promise<void>;
-
-  /**
-   * Update stream metrics
-   */
-  updateMetrics(id: string, metrics: PlaybackMetrics): Promise<void>;
 
   /**
    * Update stream manifest

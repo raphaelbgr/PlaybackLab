@@ -6,7 +6,6 @@
 import { create } from 'zustand';
 import type { StreamInfo, PlaybackState } from '../core/interfaces/IStreamDetector';
 import type { ParsedManifest } from '../core/interfaces/IManifestParser';
-import type { PlaybackMetrics } from '../core/interfaces/IMetricsCollector';
 import { urlsMatch } from '../shared/utils/stringUtils';
 
 export interface PlaybackUpdate {
@@ -20,7 +19,6 @@ export interface PlaybackUpdate {
 export interface DetectedStream {
   info: StreamInfo;
   manifest?: ParsedManifest;
-  metrics: PlaybackMetrics[];
   isLoading: boolean;
   error?: string;
 }
@@ -39,7 +37,6 @@ export interface AppState {
   removeStream: (id: string) => void;
   selectStream: (id: string | null) => void;
   updateManifest: (id: string, manifest: ParsedManifest) => void;
-  addMetrics: (id: string, metrics: PlaybackMetrics) => void;
   setStreamLoading: (id: string, loading: boolean) => void;
   setStreamError: (id: string, error: string) => void;
   setActiveTab: (tab: AppState['activeTab']) => void;
@@ -77,7 +74,6 @@ export const useStore = create<AppState>((set) => ({
       const newStreams = new Map(state.streams);
       newStreams.set(stream.id, {
         info: stream,
-        metrics: [],
         isLoading: false,
       });
       return {
@@ -107,18 +103,6 @@ export const useStore = create<AppState>((set) => ({
       if (!stream) return state;
       const newStreams = new Map(state.streams);
       newStreams.set(id, { ...stream, manifest, isLoading: false });
-      return { streams: newStreams };
-    }),
-
-  addMetrics: (id, metrics) =>
-    set((state) => {
-      const stream = state.streams.get(id);
-      if (!stream) return state;
-      const newStreams = new Map(state.streams);
-      newStreams.set(id, {
-        ...stream,
-        metrics: [...stream.metrics.slice(-99), metrics], // Keep last 100
-      });
       return { streams: newStreams };
     }),
 

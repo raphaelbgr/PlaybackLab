@@ -24,19 +24,16 @@ export function HealthScoreCard({ stream, metrics }: Props) {
   const healthScore = useMemo<HealthScore | null>(() => {
     if (!stream) return null;
 
-    // Build metrics from stream data
-    const streamMetrics = stream.metrics || [];
-    const latestMetrics = streamMetrics[streamMetrics.length - 1];
-
+    // Build metrics from available stream data (without real-time metrics)
     const fullMetrics: HealthMetrics = {
-      bufferLevel: latestMetrics?.buffer ?? 10,
-      droppedFrames: latestMetrics?.droppedFrames ?? 0,
+      bufferLevel: 10, // Default buffer level
+      droppedFrames: 0,
       totalFrames: 1000, // Estimate
       rebufferingEvents: 0,
       playbackDuration: 60,
       errorCount: stream.error ? 1 : 0,
       qualitySwitches: 0,
-      averageBitrate: latestMetrics?.bitrate ?? 0,
+      averageBitrate: stream.manifest?.videoVariants?.[0]?.bandwidth ?? 0,
       maxBitrate: stream.manifest?.videoVariants?.[0]?.bandwidth ?? 5000000,
       ...metrics,
     };

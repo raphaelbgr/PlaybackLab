@@ -13,6 +13,14 @@ import { useToast } from './Toast';
 import { safeUpperCase, typeToClassName, formatBitrateShort, getFilenameFromUrl, getDisplayUrl, getStreamGroupKey, cleanPageTitle } from '../../../shared/utils/stringUtils';
 import type { PlaybackState, StreamContentType, StreamRole } from '../../../core/interfaces/IStreamDetector';
 
+// Time window (ms) to consider a stream as "new"
+const NEW_STREAM_WINDOW_MS = 15000; // 15 seconds
+
+// Helper function to check if a stream is recently detected
+function isStreamNew(detectedAt: number): boolean {
+  return Date.now() - detectedAt < NEW_STREAM_WINDOW_MS;
+}
+
 // Helper function to get tooltip for stream type
 function getStreamTypeTooltip(type: string | undefined): string {
   const tooltips: Record<string, string> = {
@@ -394,6 +402,7 @@ function StreamGroupCard({
         stream={firstStream}
         isSelected={selectedStreamId === firstStream.info.id}
         isExpanded={expandedCards.has(firstStream.info.id)}
+        isNew={isStreamNew(firstStream.info.detectedAt)}
         onSelect={() => onSelectStream(firstStream.info.id)}
         onToggleExpand={() => onToggleCard(firstStream.info.id)}
         onCopyUrl={() => onCopyUrl(firstStream.info.url)}
@@ -465,6 +474,9 @@ function StreamGroupCard({
                 onClick={() => onSelectStream(stream.info.id)}
               >
                 <RoleIndicator role={stream.info.role} />
+                {isStreamNew(stream.info.detectedAt) && (
+                  <span className="new-badge mini" title="Recently detected">NEW</span>
+                )}
                 <ContentTypeIndicator contentType={stream.info.contentType} />
                 <PlaybackStatusIndicator state={stream.info.playbackState} isActive={stream.info.isActive} />
                 <AudioIndicator
@@ -498,6 +510,7 @@ interface ExpandableStreamCardProps {
   stream: ReturnType<typeof useStreamsList>[0];
   isSelected: boolean;
   isExpanded: boolean;
+  isNew: boolean;
   onSelect: () => void;
   onToggleExpand: () => void;
   onCopyUrl: () => void;
@@ -511,6 +524,7 @@ function ExpandableStreamCard({
   stream,
   isSelected,
   isExpanded,
+  isNew,
   onSelect,
   onToggleExpand,
   onCopyUrl,
@@ -548,6 +562,13 @@ function ExpandableStreamCard({
         <span className={`type-badge ${typeToClassName(info.type)}`} title={getStreamTypeTooltip(info.type)}>
           {safeUpperCase(info.type)}
         </span>
+
+        {/* NEW Badge for recently detected streams */}
+        {isNew && (
+          <span className="new-badge" title="Recently detected stream">
+            NEW
+          </span>
+        )}
 
         {/* Content Type Badge */}
         <ContentTypeIndicator contentType={info.contentType} />

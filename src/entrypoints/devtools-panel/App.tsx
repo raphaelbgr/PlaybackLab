@@ -83,7 +83,17 @@ function AppContent() {
         const stream = message.payload as StreamInfo;
         // Only add streams from the inspected tab
         if (stream.tabId === inspectedTabId) {
+          // Check if this is a new stream (not already in the store)
+          const state = useStore.getState();
+          const isNewStream = !Array.from(state.streams.values()).some(s => s.info.url === stream.url);
+
           addStream(stream);
+
+          // Show toast for new streams
+          if (isNewStream) {
+            const streamType = stream.type?.toUpperCase() || 'STREAM';
+            showToast('success', `New ${streamType} stream detected`);
+          }
         }
       } else if (message.type === 'MANIFEST_LOADED' && message.payload) {
         const { streamId, tabId, manifest } = message.payload as ManifestLoadedPayload;

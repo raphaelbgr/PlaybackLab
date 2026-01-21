@@ -63,6 +63,9 @@ export default defineBackground(() => {
   // Track active video sources per tab
   const activeVideoSources = new Map<number, string[]>();
 
+  // Track which tabs have video overlays enabled
+  const overlaysEnabledTabs = new Set<number>();
+
   // Listen for web requests to detect streams
   chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
@@ -107,6 +110,15 @@ export default defineBackground(() => {
                 type: 'STREAM_DETECTED',
                 payload: stream,
               }).catch(() => {});
+
+              // Update content script cache if overlays are enabled
+              if (overlaysEnabledTabs.has(stream.tabId)) {
+                const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
+                chrome.tabs.sendMessage(stream.tabId, {
+                  type: 'UPDATE_STREAMS_CACHE',
+                  payload: { streams: streamsCache },
+                }).catch(() => {});
+              }
 
               // Auto-fetch and parse manifest in background
               autoFetchManifest(stream);
@@ -210,6 +222,7 @@ export default defineBackground(() => {
     autoDetectionEnabled.delete(tabId);
     filterAdsEnabled.delete(tabId);
     activeVideoSources.delete(tabId);
+    overlaysEnabledTabs.delete(tabId);
     streamDetector.clearForTab(tabId);
   });
 
@@ -219,6 +232,7 @@ export default defineBackground(() => {
       tabStreams.delete(tabId);
       tabNetworkRequests.delete(tabId);
       activeVideoSources.delete(tabId);
+      overlaysEnabledTabs.delete(tabId);
       streamDetector.clearForTab(tabId);
     }
   });
@@ -405,6 +419,8 @@ export default defineBackground(() => {
                 if (chrome.runtime.lastError) {
                   sendResponse({ success: false, error: chrome.runtime.lastError.message });
                 } else {
+                  // Track that overlays are enabled for this tab
+                  overlaysEnabledTabs.add(tabId);
                   sendResponse(response || { success: true });
                 }
               });
@@ -439,6 +455,8 @@ export default defineBackground(() => {
 
       case 'DISABLE_VIDEO_OVERLAYS': {
         const tabId = message.tabId as number;
+        // Track that overlays are disabled for this tab
+        overlaysEnabledTabs.delete(tabId);
         safeGetTab(tabId).then((tab) => {
           if (!tab) {
             sendResponse({ success: false, error: 'Tab not found' });
