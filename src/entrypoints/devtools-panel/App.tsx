@@ -78,8 +78,6 @@ function AppContent() {
         // User clicked on a video overlay - select the stream
         const { url, streamId } = message.payload as SelectStreamPayload;
         let selected = false;
-        let matchedById = false;
-        let matchedByUrl = false;
 
         // Try by stream ID first (most reliable)
         if (streamId) {
@@ -87,35 +85,44 @@ function AppContent() {
           if (state.streams.has(streamId)) {
             selectStream(streamId);
             selected = true;
-            matchedById = true;
           }
         }
 
         // Try by URL match
         if (!selected && url && !url.startsWith('blob:')) {
-          matchedByUrl = selectStreamByUrl(url);
-          selected = matchedByUrl;
+          selected = selectStreamByUrl(url);
         }
 
-        // If still not selected, check if we have any streams at all
+        // If still not selected, try to select the best candidate
         if (!selected) {
           const state = useStore.getState();
           const streamsList = Array.from(state.streams.values());
 
           if (streamsList.length === 0) {
             // No streams detected at all
-            showToast('No streams detected. Try enabling auto-detection or refreshing the page.', 'warning');
+            showToast('No streams detected. Enable auto-detection and refresh the page.', 'warning');
+          } else if (streamsList.length === 1) {
+            // Only one stream - select it (high confidence)
+            selectStream(streamsList[0].info.id);
+            selected = true;
           } else {
-            // We have streams but couldn't match this video to any
-            showToast(
-              `Could not match video to detected streams. The stream may not be captured yet - try refreshing the page with auto-detection enabled.`,
-              'warning'
-            );
-            // Still switch to streams tab so user can manually select
-            setCurrentTab('streams');
+            // Multiple streams - select the active/playing one if exists, otherwise first
+            const activeStream = streamsList.find(s => s.info.isActive || s.info.playbackState === 'playing');
+            if (activeStream) {
+              selectStream(activeStream.info.id);
+              selected = true;
+              showToast('Multiple streams detected - selected the active one. Verify selection.', 'info');
+            } else {
+              // No active stream, select first and inform user
+              selectStream(streamsList[0].info.id);
+              selected = true;
+              showToast('Multiple streams detected - please verify the correct one is selected.', 'info');
+            }
           }
-        } else {
-          // Successfully matched - switch to streams tab
+        }
+
+        // Switch to streams tab if we selected something
+        if (selected) {
           setCurrentTab('streams');
         }
       }
