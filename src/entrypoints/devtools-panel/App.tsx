@@ -19,6 +19,29 @@ import type { ParsedManifest } from '../../core/interfaces/IManifestParser';
 
 type TabId = 'streams' | 'network' | 'export';
 
+// Overlay preference persistence
+const OVERLAY_PREF_KEY = 'pbl_video_overlays_enabled';
+
+function getOverlayPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(OVERLAY_PREF_KEY);
+    if (stored !== null) {
+      return stored === 'true';
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+  return true; // Default to ON
+}
+
+function setOverlayPreference(enabled: boolean): void {
+  try {
+    localStorage.setItem(OVERLAY_PREF_KEY, enabled ? 'true' : 'false');
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
 // Main app wrapped with ToastProvider
 export function App() {
   return (
@@ -36,7 +59,7 @@ function AppContent() {
   const { showToast } = useToast();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [videoOverlaysEnabled, setVideoOverlaysEnabled] = useState(false);
+  const [videoOverlaysEnabled, setVideoOverlaysEnabled] = useState(getOverlayPreference);
 
   // Listen for stream detection, manifest loaded, playback state, and page selection messages (scoped to current tab)
   useEffect(() => {
@@ -100,7 +123,7 @@ function AppContent() {
 
           if (streamsList.length === 0) {
             // No streams detected at all
-            showToast('No streams detected. Enable auto-detection and refresh the page.', 'warning');
+            showToast('warning', 'No streams detected. Enable auto-detection and refresh the page.');
           } else if (streamsList.length === 1) {
             // Only one stream - select it (high confidence)
             selectStream(streamsList[0].info.id);
@@ -111,12 +134,12 @@ function AppContent() {
             if (activeStream) {
               selectStream(activeStream.info.id);
               selected = true;
-              showToast('Multiple streams detected - selected the active one. Verify selection.', 'info');
+              showToast('info', 'Multiple streams detected - selected the active one. Verify selection.');
             } else {
               // No active stream, select first and inform user
               selectStream(streamsList[0].info.id);
               selected = true;
-              showToast('Multiple streams detected - please verify the correct one is selected.', 'info');
+              showToast('info', 'Multiple streams detected - please verify the correct one is selected.');
             }
           }
         }
@@ -140,10 +163,19 @@ function AppContent() {
       }
     });
 
-    // Check initial overlay status
+    // Check initial overlay status and auto-enable if preference is ON
+    const savedPreference = getOverlayPreference();
     chrome.runtime.sendMessage({ type: 'GET_VIDEO_OVERLAY_STATUS', tabId: inspectedTabId }, (response) => {
       if (response?.enabled) {
+        // Overlays already enabled on page
         setVideoOverlaysEnabled(true);
+      } else if (savedPreference) {
+        // Preference says ON but not currently enabled - enable them
+        chrome.runtime.sendMessage({ type: 'ENABLE_VIDEO_OVERLAYS', tabId: inspectedTabId }, (enableResponse) => {
+          if (enableResponse?.success) {
+            setVideoOverlaysEnabled(true);
+          }
+        });
       }
     });
 
@@ -167,12 +199,14 @@ function AppContent() {
       chrome.runtime.sendMessage({ type: 'ENABLE_VIDEO_OVERLAYS', tabId }, (response) => {
         if (response?.success) {
           setVideoOverlaysEnabled(true);
+          setOverlayPreference(true);
         }
       });
     } else {
       chrome.runtime.sendMessage({ type: 'DISABLE_VIDEO_OVERLAYS', tabId }, (response) => {
         if (response?.success) {
           setVideoOverlaysEnabled(false);
+          setOverlayPreference(false);
         }
       });
     }

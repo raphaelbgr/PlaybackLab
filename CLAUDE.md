@@ -115,6 +115,7 @@ Current utilities:
 - `chromeApiSafe.ts` - Safe Chrome API wrappers (handles closed tabs, invalid contexts)
 - `errorExplanations.ts` - Error code explanations
 - `streamHealthScore.ts` - Health score calculations
+- `videoTags.ts` - Video/audio codec parsing and tag generation (see below)
 
 **Rules:**
 1. If the same logic appears in 2+ places, extract it to a shared utility
@@ -189,6 +190,88 @@ if (tab) {
   // Tab exists, proceed
 }
 ```
+
+### Video/Audio Tag System
+
+**ALWAYS use the centralized tag system** for displaying codec, quality, HDR, and other video/audio metadata as badges.
+
+**Files:**
+- `src/shared/utils/videoTags.ts` - Core tag utility with parsing and generation
+- `src/entrypoints/devtools-panel/components/Tooltip.tsx` - Rich tooltip component
+
+**Codec Parsing:**
+- `parseVideoCodec(codecString)` - Parse H.264, HEVC, VP9, AV1 with profile/level
+- `parseAudioCodec(codecString)` - Parse AAC, AC-3, E-AC-3, Opus with branded names (Dolby Digital, etc.)
+- `extractAudioFromCodecs(combinedCodec)` - Extract audio codec from muxed video+audio codec string
+
+**Quality & Feature Detection:**
+- `getQualityTier(height)` - Returns: 8K, 4K, 1080p, 720p, SD, etc.
+- `getQualityLabel(height)` - Returns: "8K UHD", "4K UHD", "1080p Full HD", etc.
+- `getResolutionName(width, height)` - Returns: "Full HD", "4K UHD", "QHD", etc.
+- `detectHdrType(codec, transfer)` - Returns: HDR10, HDR10+, Dolby Vision, HLG, SDR
+- `getAspectRatio(width, height)` - Returns: "16:9", "4:3", "21:9", etc.
+
+**Tag Generation:**
+- `getVideoCodecTag(codec)` - Tag for H.264, HEVC, VP9, AV1
+- `getResolutionTag(width, height)` - Tag for resolution name (Full HD, 4K UHD, etc.)
+- `getQualityTag(height)` - Tag for resolution tier (4K, 1080p, etc.)
+- `getHdrTag(codec, transfer)` - Tag for HDR type
+- `getFrameRateTag(fps)` - Tag for frame rates (24fps, 30fps, 60fps, etc.)
+- `getAudioCodecTag(codec, isAtmos?)` - Tag for audio codec with branded names
+- `getAudioChannelsTag(channels, isAtmos?)` - Tag for Mono, Stereo, 5.1, 7.1, 7.1.4
+- `getFeatureTag(feature)` - Tag for Muxed, Spatial, Lossless, Hi-Res
+- `getMuxedAudioInfo(videoCodec)` - Extract muxed audio codec, channels, estimated bitrate
+
+**Batch Tag Generation:**
+- `getVideoVariantTags(codec, height, fps, width?, transfer?)` - All tags for a video variant
+- `getAudioVariantTags(codec, channels, isAtmos?, isLossless?, isHiRes?)` - All tags for an audio variant
+
+**Tag Interface:**
+```typescript
+interface Tag {
+  id: string;          // Unique identifier
+  label: string;       // Display text (e.g., "H.264", "Full HD")
+  category: TagCategory;
+  color: string;       // Text color
+  bgColor: string;     // Background color
+  tooltip: string;     // Hover tooltip text
+  richTooltip?: boolean; // True if should use rich tooltip component
+}
+```
+
+**Tooltip System:**
+- `TOOLTIP_MAP` - Comprehensive tooltip content for all tag types
+- CSS tooltips via `data-tooltip` attribute (simple, fast)
+- React `<Tooltip>` component for rich tooltips with details
+
+**Branded Audio Codec Names:**
+| Codec | Branded Name |
+|-------|--------------|
+| mp4a.40.2 | AAC-LC |
+| mp4a.40.5 | HE-AAC |
+| ac-3 | Dolby Digital |
+| ec-3 | Dolby Digital+ |
+| ec-3 + Atmos | Dolby Atmos |
+| opus | Opus |
+| flac | FLAC |
+
+**Resolution Tags:**
+| Dimensions | Tag |
+|------------|-----|
+| 7680x4320 | 8K UHD |
+| 3840x2160 | 4K UHD |
+| 4096x2160 | Cinema 4K |
+| 2560x1440 | QHD |
+| 1920x1080 | Full HD |
+| 1280x720 | HD |
+| < 720p | SD |
+
+**Rules:**
+1. **ALWAYS** use tag functions instead of manually parsing codecs
+2. Tags include consistent colors defined in `TAG_COLORS` palette
+3. All tags have tooltips with educational content via `TOOLTIP_MAP`
+4. Use `getVideoVariantTags()` for batch generation in components
+5. For muxed audio, use `getMuxedAudioInfo()` to extract and display codec/channels
 
 ## DevTools Panel CSS & Scrolling (CRITICAL)
 

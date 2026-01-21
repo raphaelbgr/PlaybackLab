@@ -54,16 +54,39 @@ export class HlsManifestParser implements IManifestParser {
     const audioGroups = manifest.mediaGroups?.AUDIO || {};
     for (const groupId in audioGroups) {
       for (const name in audioGroups[groupId]) {
-        const audio = audioGroups[groupId][name];
-        if (audio.uri) {
-          audioVariants.push({
-            language: audio.language,
-            name: audio.name || name,
-            codecs: audio.attributes?.CODECS,
-            url: resolveUrl(audio.uri),
-            channels: audio.channels ? parseInt(audio.channels, 10) : undefined,
-          });
-        }
+        const audio = audioGroups[groupId][name] as any;
+        // Include both muxed (no URI) and separate (has URI) audio tracks
+        const isMuxed = !audio.uri;
+        audioVariants.push({
+          language: audio.language,
+          name: audio.name || name,
+          codecs: audio.attributes?.CODECS || audio.codecs,
+          url: audio.uri ? resolveUrl(audio.uri) : '',
+          channels: audio.channels ? parseInt(audio.channels, 10) : undefined,
+          // Enhanced fields
+          isMuxed,
+          isDefault: audio.default === true || audio.default === 'YES',
+          autoSelect: audio.autoselect === true || audio.autoselect === 'YES',
+          groupId,
+          characteristics: audio.characteristics,
+        });
+      }
+    }
+
+    // If no audio groups found but we have video variants, check if audio might be muxed
+    // by looking at video variant codecs (if they include audio codec like mp4a)
+    if (audioVariants.length === 0 && videoVariants.length > 0) {
+      const hasAudioCodec = videoVariants.some(v =>
+        v.codecs?.includes('mp4a') || v.codecs?.includes('ac-3') || v.codecs?.includes('ec-3')
+      );
+      if (hasAudioCodec) {
+        audioVariants.push({
+          name: 'Default Audio',
+          url: '',
+          isMuxed: true,
+          isDefault: true,
+          channels: 2, // Assume stereo for muxed
+        });
       }
     }
 

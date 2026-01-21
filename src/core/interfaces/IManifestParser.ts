@@ -19,6 +19,13 @@ export interface AudioVariant {
   codecs?: string;
   url: string;
   channels?: number;
+  // Enhanced audio info
+  isMuxed?: boolean;        // true if audio is embedded in video segments (no separate URL)
+  isDefault?: boolean;      // true if this is the default audio track
+  autoSelect?: boolean;     // true if player should auto-select this track
+  sampleRate?: number;      // Audio sample rate in Hz (e.g., 48000)
+  groupId?: string;         // Audio group identifier
+  characteristics?: string; // Accessibility characteristics (e.g., 'public.accessibility.describes-video')
 }
 
 export interface SubtitleTrack {

@@ -43,6 +43,9 @@ export class DashManifestParser implements IManifestParser {
     const drm: DrmInfo[] = [];
     const segments: SegmentInfo[] = [];
 
+    // Track if video has muxed audio (for detecting muxed audio)
+    let videoHasMuxedAudio = false;
+
     // Process playlists from mpd-parser
     for (const playlist of manifest.playlists || []) {
       const attrs = playlist.attributes || {};
@@ -56,13 +59,22 @@ export class DashManifestParser implements IManifestParser {
           url: playlist.uri || '',
           frameRate: attrs.FRAME_RATE,
         });
+        // Check if video codec string includes audio codec (muxed)
+        if (attrs.CODECS?.includes('mp4a') || attrs.CODECS?.includes('ac-3') || attrs.CODECS?.includes('ec-3')) {
+          videoHasMuxedAudio = true;
+        }
       } else if (attrs.mimeType?.includes('audio')) {
         audioVariants.push({
           bandwidth: attrs.BANDWIDTH,
           language: attrs.LANGUAGE,
-          name: attrs.NAME,
+          name: attrs.NAME || attrs.LABEL,
           codecs: attrs.CODECS,
           url: playlist.uri || '',
+          // Enhanced fields
+          isMuxed: false, // Separate AdaptationSet means not muxed
+          isDefault: attrs.DEFAULT === 'true' || attrs.DEFAULT === true,
+          sampleRate: attrs.audioSamplingRate ? parseInt(attrs.audioSamplingRate, 10) : undefined,
+          channels: attrs.audioChannels ? parseInt(attrs.audioChannels, 10) : undefined,
         });
       }
 
@@ -104,30 +116,51 @@ export class DashManifestParser implements IManifestParser {
 
     // Process media groups for audio/subtitles
     if (manifest.mediaGroups) {
-      const audioGroup = manifest.mediaGroups.AUDIO?.audio || {};
-      for (const name in audioGroup) {
-        const audio = audioGroup[name];
-        if (audio.uri) {
+      const audioGroups = manifest.mediaGroups.AUDIO || {};
+      for (const groupId in audioGroups) {
+        const group = audioGroups[groupId];
+        for (const name in group) {
+          const audio = group[name] as any;
           audioVariants.push({
             language: audio.language,
             name: audio.name || name,
-            url: audio.uri,
+            url: audio.uri || '',
+            codecs: audio.codecs,
+            // Enhanced fields
+            isMuxed: !audio.uri,
+            isDefault: audio.default === true,
+            autoSelect: audio.autoselect === true,
+            groupId,
           });
         }
       }
 
-      const subtitleGroup = manifest.mediaGroups.SUBTITLES?.subs || {};
-      for (const name in subtitleGroup) {
-        const sub = subtitleGroup[name];
-        if (sub.uri) {
-          subtitles.push({
-            language: sub.language,
-            name: sub.name || name,
-            url: sub.uri,
-            forced: sub.forced,
-          });
+      const subtitleGroups = manifest.mediaGroups.SUBTITLES || {};
+      for (const groupId in subtitleGroups) {
+        const group = subtitleGroups[groupId];
+        for (const name in group) {
+          const sub = group[name];
+          if (sub.uri) {
+            subtitles.push({
+              language: sub.language,
+              name: sub.name || name,
+              url: sub.uri,
+              forced: sub.forced,
+            });
+          }
         }
       }
+    }
+
+    // If no audio variants found but video has muxed audio codecs, add a muxed audio entry
+    if (audioVariants.length === 0 && videoHasMuxedAudio) {
+      audioVariants.push({
+        name: 'Default Audio',
+        url: '',
+        isMuxed: true,
+        isDefault: true,
+        channels: 2,
+      });
     }
 
     return {

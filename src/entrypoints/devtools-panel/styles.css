@@ -116,6 +116,219 @@
   text-align: left;
 }
 
+/* ============================================
+   React Tooltip Component Styles
+   ============================================ */
+
+/* Trigger wrapper - inline display */
+.tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Tooltip content container */
+.tooltip-content {
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #1a1a1a 0%, #242424 100%);
+  color: #e0e0e0;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 6px;
+  border: 1px solid #444;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  animation: tooltipFadeIn 0.15s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.tooltip-content.tooltip-top {
+  transform: translateX(-50%) translateY(-100%);
+  margin-top: -8px;
+}
+
+.tooltip-content.tooltip-bottom {
+  transform: translateX(-50%);
+  margin-top: 8px;
+}
+
+.tooltip-content.tooltip-left {
+  transform: translateX(-100%) translateY(-50%);
+  margin-left: -8px;
+}
+
+.tooltip-content.tooltip-right {
+  transform: translateY(-50%);
+  margin-left: 8px;
+}
+
+/* Tooltip arrow */
+.tooltip-arrow {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  transform: rotate(45deg);
+}
+
+.tooltip-top .tooltip-arrow {
+  bottom: -5px;
+  left: 50%;
+  margin-left: -4px;
+  border-top: none;
+  border-left: none;
+}
+
+.tooltip-bottom .tooltip-arrow {
+  top: -5px;
+  left: 50%;
+  margin-left: -4px;
+  border-bottom: none;
+  border-right: none;
+}
+
+/* ============================================
+   Rich Tag Tooltip Styles (TagTooltip component)
+   ============================================ */
+
+.tag-tooltip {
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.tag-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.tag-tooltip-icon {
+  font-size: 16px;
+}
+
+.tag-tooltip-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.tag-tooltip-description {
+  color: #b0b0b0;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.tag-tooltip-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.tag-tooltip-detail {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.tag-tooltip-detail .detail-label {
+  color: #888;
+}
+
+.tag-tooltip-detail .detail-value {
+  color: #ccc;
+  font-weight: 500;
+}
+
+.tag-tooltip-link {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 11px;
+  text-decoration: none;
+  margin-top: 4px;
+}
+
+.tag-tooltip-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* ============================================
+   Enhanced Tag Styles (for video/audio cards)
+   ============================================ */
+
+/* Base tag style - used by all tags */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  cursor: default;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.tag:hover {
+  transform: scale(1.02);
+}
+
+/* Tag with tooltip indicator */
+.tag[data-tooltip]::after {
+  max-width: 280px;
+  white-space: normal;
+  text-align: left;
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* Mini tag variant for compact displays */
+.tag-mini {
+  padding: 1px 5px;
+  font-size: 9px;
+  border-radius: 3px;
+}
+
+/* Tag group - for multiple tags in a row */
+.tag-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Premium tag styling (Dolby Atmos, Dolby Vision, etc.) */
+.tag-premium {
+  background: linear-gradient(135deg, rgba(255, 215, 64, 0.2) 0%, rgba(255, 171, 64, 0.15) 100%);
+  border: 1px solid rgba(255, 215, 64, 0.3);
+  box-shadow: 0 1px 4px rgba(255, 215, 64, 0.1);
+}
+
+/* Resolution tag styling */
+.tag-resolution {
+  font-weight: 700;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -5116,6 +5329,41 @@ body {
   border-radius: 50%;
 }
 
+/* Enhanced Bitrate Ladder - Summary and Badges */
+.ladder-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ladder-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ladder-row-badges {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.ladder-mini-badge {
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
 .codecs {
   font-family: 'Consolas', monospace;
   font-size: 10px;
@@ -5676,4 +5924,409 @@ body {
 /* Errors Tab */
 .errors-tab {
   padding: 0;
+}
+
+/* ========================================
+   Audio Cards (Manifest Tab)
+   ======================================== */
+
+.audio-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.audio-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.audio-card:hover {
+  border-color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.audio-card.expanded {
+  border-color: var(--accent);
+  background: rgba(0, 122, 204, 0.05);
+}
+
+.audio-card.is-default {
+  border-left: 3px solid var(--success);
+}
+
+/* Audio Card Header */
+.audio-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.audio-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-icon {
+  font-size: 16px;
+  opacity: 0.8;
+}
+
+.audio-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.audio-card-badges {
+  display: flex;
+  gap: 6px;
+}
+
+/* Audio Badges */
+.audio-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.audio-badge.default {
+  background: rgba(78, 201, 176, 0.2);
+  color: var(--success);
+}
+
+.audio-badge.muxed {
+  background: rgba(156, 39, 176, 0.15);
+  color: #ba68c8;
+}
+
+.audio-badge.separate {
+  background: rgba(79, 195, 247, 0.15);
+  color: var(--hls-color);
+}
+
+/* Audio Card Info Row */
+.audio-card-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.audio-info-item {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: help;
+}
+
+.audio-info-item.lang {
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(0, 122, 204, 0.1);
+}
+
+/* Expanded Details */
+.audio-card-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.audio-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.audio-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.audio-detail.full-width {
+  grid-column: 1 / -1;
+}
+
+.audio-detail .detail-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.audio-detail .detail-value {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+/* Audio URL Row */
+.audio-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-primary);
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.audio-url {
+  flex: 1;
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expand indicator */
+.audio-card-expand {
+  position: absolute;
+  bottom: 6px;
+  right: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.audio-card.expanded .audio-card-expand {
+  transform: rotate(180deg);
+}
+
+/* ========================================
+   Video Cards (Manifest Tab)
+   ======================================== */
+
+.video-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.video-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.video-card:hover {
+  border-color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.video-card.expanded {
+  border-color: var(--accent);
+  background: rgba(0, 122, 204, 0.05);
+}
+
+.video-card.top-quality {
+  border-left: 3px solid var(--success);
+}
+
+/* Video Card Header */
+.video-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.video-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-icon {
+  font-size: 16px;
+  opacity: 0.8;
+}
+
+.video-quality {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.video-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.video-badge.best {
+  background: rgba(78, 201, 176, 0.2);
+  color: var(--success);
+}
+
+.video-card-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Video Tags */
+.video-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Video Card Info Row */
+.video-card-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.video-info-item {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: help;
+}
+
+.video-info-item.muxed {
+  color: var(--success);
+  background: rgba(78, 201, 176, 0.1);
+}
+
+/* Muxed Audio Row (Option A + B) */
+.video-muxed-audio-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: linear-gradient(135deg, rgba(77, 182, 172, 0.08) 0%, rgba(77, 182, 172, 0.04) 100%);
+  border: 1px solid rgba(77, 182, 172, 0.15);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.muxed-audio-icon {
+  font-size: 12px;
+}
+
+.muxed-audio-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.muxed-audio-bitrate {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: italic;
+  margin-left: 4px;
+}
+
+/* Expanded Details */
+.video-card-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.video-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.video-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.video-detail.full-width {
+  grid-column: 1 / -1;
+}
+
+.video-detail .detail-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.video-detail .detail-value {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.video-detail .detail-value.mono {
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* Video URL Row */
+.video-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-primary);
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.video-url {
+  flex: 1;
+  font-family: 'Consolas', 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expand indicator */
+.video-card-expand {
+  position: absolute;
+  bottom: 6px;
+  right: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.video-card.expanded .video-card-expand {
+  transform: rotate(180deg);
 }

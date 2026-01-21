@@ -13,7 +13,17 @@ import { useStore } from '../../../store';
 import { formatDistanceToNow } from 'date-fns';
 import { safeUpperCase, typeToClassName, formatBitrate, formatDuration, getFilenameFromUrl } from '../../../shared/utils/stringUtils';
 import { copyToClipboard, generateCurlCommand } from '../../../shared/utils/copyAsCurl';
+import {
+  parseVideoCodec,
+  getVideoVariantTags,
+  getQualityLabel,
+  getAspectRatio,
+  getResolutionTag,
+  getAudioVariantTags,
+  type MuxedAudioInfo,
+} from '../../../shared/utils/videoTags';
 import { ErrorDisplay } from './ErrorDisplay';
+import { CopyButton } from './CopyButton';
 import type { VideoVariant, ParsedManifest } from '../../../core/interfaces/IManifestParser';
 
 interface StreamDetailsProps {
@@ -375,7 +385,7 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
   );
 }
 
-// Bitrate Ladder Visualization Component
+// Bitrate Ladder Visualization Component (Enhanced with codec/HDR badges)
 function BitrateLadder({ variants }: { variants: VideoVariant[] }) {
   // Sort by resolution (height) descending
   const sortedVariants = [...variants].sort((a, b) => (b.height || 0) - (a.height || 0));
@@ -404,13 +414,64 @@ function BitrateLadder({ variants }: { variants: VideoVariant[] }) {
     return '#6b7280';                      // Gray - Low
   };
 
+  // Get unique codecs and HDR types for summary
+  const codecSet = new Set<string>();
+  const hdrSet = new Set<string>();
+  sortedVariants.forEach(v => {
+    const tags = getVideoVariantTags(v.codecs, v.height, v.frameRate);
+    if (tags.codec) codecSet.add(tags.codec.label);
+    if (tags.hdr) hdrSet.add(tags.hdr.label);
+  });
+
   return (
     <div className="bitrate-ladder">
+      {/* Summary badges */}
+      {(codecSet.size > 0 || hdrSet.size > 0) && (
+        <div className="ladder-summary">
+          {Array.from(codecSet).map(codec => {
+            const tags = getVideoVariantTags(
+              sortedVariants.find(v => parseVideoCodec(v.codecs)?.codec === codec)?.codecs,
+              undefined,
+              undefined
+            );
+            return tags.codec ? (
+              <span
+                key={codec}
+                className="ladder-badge"
+                style={{ color: tags.codec.color, backgroundColor: tags.codec.bgColor }}
+                data-tooltip={tags.codec.tooltip}
+              >
+                {tags.codec.label}
+              </span>
+            ) : null;
+          })}
+          {Array.from(hdrSet).map(hdr => {
+            const variant = sortedVariants.find(v => {
+              const t = getVideoVariantTags(v.codecs, v.height, v.frameRate);
+              return t.hdr?.label === hdr;
+            });
+            const tags = variant ? getVideoVariantTags(variant.codecs, variant.height, variant.frameRate) : null;
+            return tags?.hdr ? (
+              <span
+                key={hdr}
+                className="ladder-badge"
+                style={{ color: tags.hdr.color, backgroundColor: tags.hdr.bgColor }}
+                data-tooltip={tags.hdr.tooltip}
+              >
+                {tags.hdr.label}
+              </span>
+            ) : null;
+          })}
+        </div>
+      )}
+
+      {/* Ladder rows */}
       {sortedVariants.map((variant, i) => {
         const height = variant.height || 0;
         const bandwidth = variant.bandwidth || 0;
         const widthPercent = maxBandwidth > 0 ? (bandwidth / maxBandwidth) * 100 : 0;
         const color = getQualityColor(height);
+        const tags = getVideoVariantTags(variant.codecs, variant.height, variant.frameRate);
 
         return (
           <div key={i} className="ladder-row">
@@ -427,6 +488,36 @@ function BitrateLadder({ variants }: { variants: VideoVariant[] }) {
                 }}
               />
               <span className="ladder-bitrate">{formatBitrate(bandwidth)}</span>
+              {/* Show badges for this variant */}
+              <div className="ladder-row-badges">
+                {tags.codec && (
+                  <span
+                    className="ladder-mini-badge"
+                    style={{ color: tags.codec.color, backgroundColor: tags.codec.bgColor }}
+                    data-tooltip={tags.codec.tooltip}
+                  >
+                    {tags.codec.label}
+                  </span>
+                )}
+                {tags.hdr && (
+                  <span
+                    className="ladder-mini-badge"
+                    style={{ color: tags.hdr.color, backgroundColor: tags.hdr.bgColor }}
+                    data-tooltip={tags.hdr.tooltip}
+                  >
+                    {tags.hdr.label}
+                  </span>
+                )}
+                {tags.frameRate && (
+                  <span
+                    className="ladder-mini-badge"
+                    style={{ color: tags.frameRate.color, backgroundColor: tags.frameRate.bgColor }}
+                    data-tooltip={tags.frameRate.tooltip}
+                  >
+                    {tags.frameRate.label}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -1037,43 +1128,6 @@ function PayloadTab({ stream }: { stream: DetectedStream }) {
   );
 }
 
-// Expandable Variant Row Component
-function ExpandableVariantRow({
-  children,
-  url,
-  expanded,
-  onToggle
-}: {
-  children: React.ReactNode;
-  url: string;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className={`expandable-variant ${expanded ? 'expanded' : ''}`}>
-      <div className="table-row clickable" onClick={onToggle}>
-        <span className="expand-indicator">{expanded ? '▼' : '▶'}</span>
-        {children}
-      </div>
-      {expanded && (
-        <div className="variant-details">
-          <div className="variant-url-row">
-            <span className="url-label">URL:</span>
-            <span className="url-value" title={url}>{url}</span>
-            <button
-              className="copy-btn-small"
-              onClick={(e) => { e.stopPropagation(); copyToClipboard(url); }}
-              title="Copy URL"
-            >
-              📋
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ManifestTab({ stream }: { stream: DetectedStream }) {
   const { manifest } = stream;
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
@@ -1140,62 +1194,324 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
         </div>
       </div>
 
-      {/* Video Variants */}
+      {/* Video Variants - Rich Cards */}
       {videoVariants.length > 0 && (
         <div className="manifest-section">
-          <h4 className="section-title">Video Variants ({videoVariants.length})</h4>
-          <div className="variants-table expandable">
-            <div className="table-header">
-              <span></span>
-              <span>Resolution</span>
-              <span>Bandwidth</span>
-              <span>Codecs</span>
-            </div>
+          <h4 className="section-title" data-tooltip="Video quality variants available in this stream - player selects based on bandwidth">
+            Video Variants ({videoVariants.length})
+          </h4>
+          <div className="video-cards">
             {[...videoVariants]
               .sort((a, b) => (b.height || 0) - (a.height || 0))
               .map((variant, i) => {
                 const key = `video-${i}`;
+                const isExpanded = expandedVariants.has(key);
+                const tags = getVideoVariantTags(variant.codecs, variant.height, variant.frameRate, variant.width);
+                const codecInfo = parseVideoCodec(variant.codecs);
+                const qualityLabel = getQualityLabel(variant.height);
+                const aspectRatio = getAspectRatio(variant.width, variant.height);
+                const resolutionTag = getResolutionTag(variant.width, variant.height);
+                const isTopQuality = i === 0;
+
                 return (
-                  <ExpandableVariantRow
+                  <div
                     key={key}
-                    url={variant.url}
-                    expanded={expandedVariants.has(key)}
-                    onToggle={() => toggleVariant(key)}
+                    className={`video-card ${isExpanded ? 'expanded' : ''} ${isTopQuality ? 'top-quality' : ''}`}
+                    onClick={() => toggleVariant(key)}
                   >
-                    <span>{variant.width || 0}x{variant.height || 0}</span>
-                    <span>{formatBitrate(variant.bandwidth || 0)}</span>
-                    <span className="codecs">{variant.codecs || '—'}</span>
-                  </ExpandableVariantRow>
+                    {/* Card Header */}
+                    <div className="video-card-header">
+                      <div className="video-card-title">
+                        <span className="video-icon">🎬</span>
+                        <span className="video-quality">{qualityLabel}</span>
+                        {isTopQuality && (
+                          <span className="video-badge best" data-tooltip="Highest quality variant available">Best</span>
+                        )}
+                      </div>
+                      <div className="video-card-tags">
+                        {tags.codec && (
+                          <span
+                            className="video-tag"
+                            style={{ color: tags.codec.color, backgroundColor: tags.codec.bgColor }}
+                            data-tooltip={tags.codec.tooltip}
+                          >
+                            {tags.codec.label}
+                          </span>
+                        )}
+                        {tags.hdr && (
+                          <span
+                            className="video-tag"
+                            style={{ color: tags.hdr.color, backgroundColor: tags.hdr.bgColor }}
+                            data-tooltip={tags.hdr.tooltip}
+                          >
+                            {tags.hdr.label}
+                          </span>
+                        )}
+                        {tags.frameRate && (
+                          <span
+                            className="video-tag"
+                            style={{ color: tags.frameRate.color, backgroundColor: tags.frameRate.bgColor }}
+                            data-tooltip={tags.frameRate.tooltip}
+                          >
+                            {tags.frameRate.label}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Card Info Row */}
+                    <div className="video-card-info">
+                      <span className="video-info-item" data-tooltip="Video resolution in pixels">
+                        {variant.width || 0}×{variant.height || 0}
+                      </span>
+                      {resolutionTag && (
+                        <span
+                          className="video-tag tag-resolution"
+                          style={{ color: resolutionTag.color, backgroundColor: resolutionTag.bgColor }}
+                          data-tooltip={resolutionTag.tooltip}
+                          data-tooltip-wrap
+                        >
+                          {resolutionTag.label}
+                        </span>
+                      )}
+                      <span className="video-info-item" data-tooltip="Video bitrate - higher means better quality">
+                        {formatBitrate(variant.bandwidth || 0)}
+                      </span>
+                      {variant.frameRate && (
+                        <span className="video-info-item" data-tooltip="Frames per second">
+                          {variant.frameRate}fps
+                        </span>
+                      )}
+                      <span className="video-info-item" data-tooltip="Aspect ratio">
+                        {aspectRatio}
+                      </span>
+                    </div>
+
+                    {/* Muxed Audio Info Row (Option A + B) */}
+                    {tags.muxedAudioInfo && (
+                      <div className="video-muxed-audio-row">
+                        <span className="muxed-audio-icon">🔊</span>
+                        <span className="muxed-audio-label">Muxed:</span>
+                        {tags.muxedAudioInfo.codecTag && (
+                          <span
+                            className="video-tag"
+                            style={{ color: tags.muxedAudioInfo.codecTag.color, backgroundColor: tags.muxedAudioInfo.codecTag.bgColor }}
+                            data-tooltip={tags.muxedAudioInfo.codecTag.tooltip}
+                            data-tooltip-wrap
+                          >
+                            {tags.muxedAudioInfo.codecTag.label}
+                          </span>
+                        )}
+                        {tags.muxedAudioInfo.channelsTag && (
+                          <span
+                            className="video-tag"
+                            style={{ color: tags.muxedAudioInfo.channelsTag.color, backgroundColor: tags.muxedAudioInfo.channelsTag.bgColor }}
+                            data-tooltip={tags.muxedAudioInfo.channelsTag.tooltip}
+                            data-tooltip-wrap
+                          >
+                            {tags.muxedAudioInfo.channelsTag.label}
+                          </span>
+                        )}
+                        {tags.muxedAudioInfo.estimatedBitrate && (
+                          <span className="muxed-audio-bitrate" data-tooltip="Estimated audio bitrate (actual may vary)">
+                            {tags.muxedAudioInfo.estimatedBitrate}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Expanded Details */}
+                    {isExpanded && (
+                      <div className="video-card-details">
+                        <div className="video-detail-grid">
+                          <div className="video-detail">
+                            <span className="detail-label">Resolution</span>
+                            <span className="detail-value">{variant.width || 0}×{variant.height || 0}</span>
+                          </div>
+                          <div className="video-detail">
+                            <span className="detail-label">Bitrate</span>
+                            <span className="detail-value">{formatBitrate(variant.bandwidth || 0)}</span>
+                          </div>
+                          <div className="video-detail">
+                            <span className="detail-label">Codec</span>
+                            <span className="detail-value">
+                              {codecInfo
+                                ? `${codecInfo.codec}${codecInfo.profile ? ` ${codecInfo.profile}` : ''}${codecInfo.level ? ` L${codecInfo.level}` : ''}`
+                                : variant.codecs || '—'}
+                            </span>
+                          </div>
+                          {variant.frameRate && (
+                            <div className="video-detail">
+                              <span className="detail-label">Frame Rate</span>
+                              <span className="detail-value">{variant.frameRate} fps</span>
+                            </div>
+                          )}
+                          <div className="video-detail">
+                            <span className="detail-label">Aspect Ratio</span>
+                            <span className="detail-value">{aspectRatio}</span>
+                          </div>
+                          <div className="video-detail full-width">
+                            <span className="detail-label">Full Codec String</span>
+                            <span className="detail-value mono">{variant.codecs || '—'}</span>
+                          </div>
+                        </div>
+                        {variant.url && (
+                          <div className="video-url-row">
+                            <code className="video-url" title={variant.url}>{variant.url}</code>
+                            <CopyButton text={variant.url} variant="icon" size="small" title="Copy variant URL" />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Expand indicator */}
+                    <div className="video-card-expand">
+                      {isExpanded ? '▲' : '▼'}
+                    </div>
+                  </div>
                 );
               })}
           </div>
         </div>
       )}
 
-      {/* Audio Variants */}
+      {/* Audio Tracks - Rich Cards (Option 2+3) */}
       {audioVariants.length > 0 && (
         <div className="manifest-section">
-          <h4 className="section-title">Audio Tracks ({audioVariants.length})</h4>
-          <div className="variants-table expandable">
-            <div className="table-header">
-              <span></span>
-              <span>Language</span>
-              <span>Name</span>
-              <span>Channels</span>
-            </div>
+          <h4 className="section-title" data-tooltip="Audio tracks available in this stream - can be muxed (embedded in video) or separate files">
+            Audio Tracks ({audioVariants.length})
+          </h4>
+          <div className="audio-cards">
             {audioVariants.map((audio, i) => {
               const key = `audio-${i}`;
+              const isExpanded = expandedVariants.has(key);
+              const audioTags = getAudioVariantTags(audio.codecs, audio.channels);
+
               return (
-                <ExpandableVariantRow
+                <div
                   key={key}
-                  url={audio.url}
-                  expanded={expandedVariants.has(key)}
-                  onToggle={() => toggleVariant(key)}
+                  className={`audio-card ${isExpanded ? 'expanded' : ''} ${audio.isDefault ? 'is-default' : ''}`}
+                  onClick={() => toggleVariant(key)}
                 >
-                  <span>{audio.language || '—'}</span>
-                  <span>{audio.name || 'Default'}</span>
-                  <span>{audio.channels || 2}ch</span>
-                </ExpandableVariantRow>
+                  {/* Card Header */}
+                  <div className="audio-card-header">
+                    <div className="audio-card-title">
+                      <span className="audio-icon">🎵</span>
+                      <span className="audio-name">{audio.name || audio.language || 'Audio'}</span>
+                      {audio.isDefault && (
+                        <span className="audio-badge default" data-tooltip="Default audio track - plays automatically">Default</span>
+                      )}
+                    </div>
+                    <div className="audio-card-badges">
+                      <span
+                        className={`audio-badge ${audio.isMuxed ? 'muxed' : 'separate'}`}
+                        data-tooltip={audio.isMuxed
+                          ? 'Muxed Audio: Audio is embedded within video segments (downloaded together)'
+                          : 'Separate: Audio is in its own playlist/segments (separate download)'}
+                      >
+                        {audio.isMuxed ? 'muxed' : 'separate'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Info Row with Tags */}
+                  <div className="audio-card-info">
+                    {audioTags.codec && (
+                      <span
+                        className="video-tag"
+                        style={{ color: audioTags.codec.color, backgroundColor: audioTags.codec.bgColor }}
+                        data-tooltip={audioTags.codec.tooltip}
+                        data-tooltip-wrap
+                      >
+                        {audioTags.codec.label}
+                      </span>
+                    )}
+                    {audioTags.channels && (
+                      <span
+                        className="video-tag"
+                        style={{ color: audioTags.channels.color, backgroundColor: audioTags.channels.bgColor }}
+                        data-tooltip={audioTags.channels.tooltip}
+                        data-tooltip-wrap
+                      >
+                        {audioTags.channels.label}
+                      </span>
+                    )}
+                    {audio.bandwidth && (
+                      <span className="audio-info-item" data-tooltip="Audio bitrate">
+                        {formatBitrate(audio.bandwidth)}
+                      </span>
+                    )}
+                    {audio.sampleRate && (
+                      <span className="audio-info-item" data-tooltip="Audio sample rate in kHz">
+                        {(audio.sampleRate / 1000).toFixed(1)}kHz
+                      </span>
+                    )}
+                    {audio.language && audio.language !== audio.name && (
+                      <span className="audio-info-item lang" data-tooltip="Language code">
+                        {audio.language}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="audio-card-details">
+                      <div className="audio-detail-grid">
+                        <div className="audio-detail">
+                          <span className="detail-label">Source</span>
+                          <span className="detail-value">{audio.isMuxed ? 'Embedded in video' : 'Separate stream'}</span>
+                        </div>
+                        <div className="audio-detail">
+                          <span className="detail-label">Codec</span>
+                          <span className="detail-value">
+                            {audioTags.codec ? audioTags.codec.label : (audio.codecs || 'Not specified')}
+                          </span>
+                        </div>
+                        <div className="audio-detail">
+                          <span className="detail-label">Channels</span>
+                          <span className="detail-value">
+                            {audio.channels || 2} ({audioTags.channels?.label || 'Stereo'})
+                          </span>
+                        </div>
+                        {audio.bandwidth && (
+                          <div className="audio-detail">
+                            <span className="detail-label">Bitrate</span>
+                            <span className="detail-value">{formatBitrate(audio.bandwidth)}</span>
+                          </div>
+                        )}
+                        {audio.sampleRate && (
+                          <div className="audio-detail">
+                            <span className="detail-label">Sample Rate</span>
+                            <span className="detail-value">{audio.sampleRate.toLocaleString()} Hz</span>
+                          </div>
+                        )}
+                        {audio.groupId && (
+                          <div className="audio-detail">
+                            <span className="detail-label">Group ID</span>
+                            <span className="detail-value">{audio.groupId}</span>
+                          </div>
+                        )}
+                        {audio.characteristics && (
+                          <div className="audio-detail full-width">
+                            <span className="detail-label">Characteristics</span>
+                            <span className="detail-value">{audio.characteristics}</span>
+                          </div>
+                        )}
+                      </div>
+                      {audio.url && !audio.isMuxed && (
+                        <div className="audio-url-row">
+                          <code className="audio-url" title={audio.url}>{audio.url}</code>
+                          <CopyButton text={audio.url} variant="icon" size="small" title="Copy audio URL" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Expand indicator */}
+                  <div className="audio-card-expand">
+                    {isExpanded ? '▲' : '▼'}
+                  </div>
+                </div>
               );
             })}
           </div>
