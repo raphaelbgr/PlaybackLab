@@ -5,6 +5,10 @@
 
 export type PlaybackState = 'playing' | 'paused' | 'buffering' | 'stalled' | 'ended' | 'idle';
 
+export type StreamContentType = 'video' | 'audio' | 'subtitle' | 'mixed' | 'unknown';
+
+export type StreamRole = 'master' | 'variant' | 'audio-track' | 'subtitle-track' | 'standalone';
+
 export interface StreamInfo {
   id: string;
   url: string;
@@ -29,6 +33,11 @@ export interface StreamInfo {
   audioMuted?: boolean;  // True if audio is muted
   volume?: number;       // Volume level (0-1)
   hasMuxedAudio?: boolean;  // True if audio is muxed with video (not separate tracks)
+
+  // Content classification
+  contentType?: StreamContentType;  // Type of content (video, audio, subtitle, mixed)
+  role?: StreamRole;                // Role in stream hierarchy (master, variant, track)
+  parentStreamId?: string;          // ID of parent stream (for variants/tracks)
 }
 
 export interface DetectionResult {

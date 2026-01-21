@@ -3,7 +3,7 @@
  * SOLID: Single Responsibility - Only detects legitimate video streams
  */
 
-import type { IStreamDetector, StreamInfo, DetectionResult } from '../interfaces/IStreamDetector';
+import type { IStreamDetector, StreamInfo, DetectionResult, StreamContentType, StreamRole } from '../interfaces/IStreamDetector';
 
 type StreamDetectedCallback = (stream: StreamInfo) => void;
 
@@ -272,6 +272,130 @@ export class StreamDetector implements IStreamDetector {
     return true;
   }
 
+  /**
+   * Detect content type from URL patterns
+   */
+  detectContentType(url: string): StreamContentType {
+    const lowerUrl = url.toLowerCase();
+
+    // Audio-only patterns
+    const audioPatterns = [
+      /[_\/]audio[_\/\-.]/i,      // _audio_, /audio/, audio-
+      /[_\/]a\d+[_\/\-.]/i,       // _a128k_, /a1/, a128-
+      /audio_only/i,              // audio_only
+      /\.aac$/i,                  // .aac files
+      /audio\.m3u8/i,             // audio.m3u8
+      /[_\/]aac[_\/\-.]/i,        // _aac_, /aac/
+      /#EXT-X-MEDIA:TYPE=AUDIO/i, // HLS audio track
+    ];
+
+    for (const pattern of audioPatterns) {
+      if (pattern.test(lowerUrl)) {
+        return 'audio';
+      }
+    }
+
+    // Subtitle patterns
+    const subtitlePatterns = [
+      /[_\/]sub[_\/\-.]/i,        // _sub_, /sub/, sub-
+      /[_\/]subtitle[_\/\-.]/i,   // _subtitle_, /subtitle/
+      /[_\/]cc[_\/\-.]/i,         // _cc_, /cc/
+      /[_\/]caption[_\/\-.]/i,    // _caption_, /caption/
+      /\.vtt$/i,                  // .vtt files
+      /\.srt$/i,                  // .srt files
+      /\.ttml$/i,                 // .ttml files
+      /\.dfxp$/i,                 // .dfxp files
+      /webvtt/i,                  // webvtt in path
+      /subtitles\.m3u8/i,         // subtitles.m3u8
+      /#EXT-X-MEDIA:TYPE=SUBTITLES/i, // HLS subtitle track
+    ];
+
+    for (const pattern of subtitlePatterns) {
+      if (pattern.test(lowerUrl)) {
+        return 'subtitle';
+      }
+    }
+
+    // Video patterns (explicit video-only markers)
+    const videoOnlyPatterns = [
+      /video_only/i,              // video_only
+      /[_\/]video[_\/\-.]\d+/i,   // _video_1080, /video/720
+    ];
+
+    for (const pattern of videoOnlyPatterns) {
+      if (pattern.test(lowerUrl)) {
+        return 'video';
+      }
+    }
+
+    // If it's a master manifest, it's likely mixed (video + audio)
+    if (this.isMasterManifest(lowerUrl) && (lowerUrl.endsWith('.m3u8') || lowerUrl.endsWith('.mpd'))) {
+      return 'mixed';
+    }
+
+    // Default to video for manifests, unknown for others
+    if (lowerUrl.endsWith('.m3u8') || lowerUrl.endsWith('.mpd')) {
+      return 'video';
+    }
+
+    return 'unknown';
+  }
+
+  /**
+   * Detect stream role from URL patterns
+   */
+  detectStreamRole(url: string): StreamRole {
+    const lowerUrl = url.toLowerCase();
+
+    // Check if it's a master manifest
+    if (this.isMasterManifest(lowerUrl)) {
+      return 'master';
+    }
+
+    // Audio track patterns
+    const audioTrackPatterns = [
+      /[_\/]audio[_\/\-.]/i,
+      /audio\.m3u8/i,
+      /[_\/]a\d+[_\/\-.]/i,
+    ];
+
+    for (const pattern of audioTrackPatterns) {
+      if (pattern.test(lowerUrl)) {
+        return 'audio-track';
+      }
+    }
+
+    // Subtitle track patterns
+    const subtitleTrackPatterns = [
+      /[_\/]sub[_\/\-.]/i,
+      /subtitles\.m3u8/i,
+      /[_\/]cc[_\/\-.]/i,
+    ];
+
+    for (const pattern of subtitleTrackPatterns) {
+      if (pattern.test(lowerUrl)) {
+        return 'subtitle-track';
+      }
+    }
+
+    // Variant patterns (resolution-specific)
+    const variantPatterns = [
+      /_\d+p\.m3u8/,
+      /\/\d+\/index\.m3u8/,
+      /_video_\d+/,
+      /chunklist/i,
+      /media_\d+/i,
+    ];
+
+    for (const pattern of variantPatterns) {
+      if (pattern.test(lowerUrl)) {
+        return 'variant';
+      }
+    }
+
+    return 'standalone';
+  }
+
   processRequest(details: chrome.webRequest.WebRequestDetails): DetectionResult {
     const { url, tabId, frameId, initiator, requestId } = details;
 
@@ -291,6 +415,8 @@ export class StreamDetector implements IStreamDetector {
     const isMaster = this.isMasterManifest(url);
     const streamType = this.detectStreamType(url);
     const platform = this.detectPlatform(url);
+    const contentType = this.detectContentType(url);
+    const role = this.detectStreamRole(url);
 
     const stream: StreamInfo = {
       id: `stream-${requestId}-${Date.now()}`,
@@ -302,6 +428,8 @@ export class StreamDetector implements IStreamDetector {
       initiator: initiator ?? undefined,
       isMaster,
       platform,
+      contentType,
+      role,
     };
 
     this.detectedStreams.set(streamKey, stream);

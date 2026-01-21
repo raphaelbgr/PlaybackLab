@@ -377,6 +377,92 @@ export default defineBackground(() => {
         return true;
       }
 
+      case 'ENABLE_VIDEO_OVERLAYS': {
+        const tabId = message.tabId as number;
+        safeGetTab(tabId).then((tab) => {
+          if (!tab) {
+            sendResponse({ success: false, error: 'Tab not found' });
+            return;
+          }
+          // Send detected streams to content script for matching
+          const streams = tabStreams.get(tabId) || [];
+          const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
+
+          // First update streams cache, then enable overlays
+          chrome.tabs.sendMessage(tabId, {
+            type: 'UPDATE_STREAMS_CACHE',
+            payload: { streams: streamsCache },
+          }, () => {
+            if (chrome.runtime.lastError) {
+              sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            // Now enable overlays
+            chrome.tabs.sendMessage(tabId, { type: 'ENABLE_VIDEO_OVERLAYS' }, (response) => {
+              if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              } else {
+                sendResponse(response || { success: true });
+              }
+            });
+          });
+        });
+        return true;
+      }
+
+      case 'DISABLE_VIDEO_OVERLAYS': {
+        const tabId = message.tabId as number;
+        safeGetTab(tabId).then((tab) => {
+          if (!tab) {
+            sendResponse({ success: false, error: 'Tab not found' });
+            return;
+          }
+          chrome.tabs.sendMessage(tabId, { type: 'DISABLE_VIDEO_OVERLAYS' }, (response) => {
+            if (chrome.runtime.lastError) {
+              sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+              sendResponse(response || { success: true });
+            }
+          });
+        });
+        return true;
+      }
+
+      case 'GET_VIDEO_OVERLAY_STATUS': {
+        const tabId = message.tabId as number;
+        safeGetTab(tabId).then((tab) => {
+          if (!tab) {
+            sendResponse({ enabled: false, count: 0 });
+            return;
+          }
+          chrome.tabs.sendMessage(tabId, { type: 'GET_OVERLAY_STATUS' }, (response) => {
+            if (chrome.runtime.lastError) {
+              sendResponse({ enabled: false, count: 0 });
+            } else {
+              sendResponse(response || { enabled: false, count: 0 });
+            }
+          });
+        });
+        return true;
+      }
+
+      case 'SELECT_STREAM_FROM_PAGE': {
+        // Forward to DevTools panel to select the stream
+        const { url, streamId, videoIndex } = message.payload as {
+          url: string;
+          streamId: string | null;
+          videoIndex: number;
+        };
+        chrome.runtime.sendMessage({
+          type: 'SELECT_STREAM_IN_PANEL',
+          payload: { url, streamId, videoIndex },
+        }).catch(() => {
+          // DevTools panel not open, ignore
+        });
+        sendResponse({ success: true });
+        return false;
+      }
+
       default:
         return false;
     }

@@ -47,6 +47,7 @@ export interface AppState {
   clearAll: () => void;
   updateStreamPlayback: (streamUrl: string, update: PlaybackUpdate) => void;
   updateAllPlaybackStates: (streams: StreamInfo[]) => void;
+  selectStreamByUrl: (url: string) => boolean;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -202,6 +203,17 @@ export const useStore = create<AppState>((set) => ({
 
       return updated ? { streams: newStreams } : state;
     }),
+
+  selectStreamByUrl: (url) => {
+    const state = useStore.getState();
+    for (const [id, stream] of state.streams) {
+      if (urlsMatch(stream.info.url, url)) {
+        set({ selectedStreamId: id });
+        return true;
+      }
+    }
+    return false;
+  },
 }));
 
 // Selectors for performance

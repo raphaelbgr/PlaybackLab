@@ -14,6 +14,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { safeUpperCase, typeToClassName, formatBitrate, formatDuration, getFilenameFromUrl } from '../../../shared/utils/stringUtils';
 import { copyToClipboard, generateCurlCommand } from '../../../shared/utils/copyAsCurl';
 import { ErrorDisplay } from './ErrorDisplay';
+import type { VideoVariant, ParsedManifest } from '../../../core/interfaces/IManifestParser';
 
 interface StreamDetailsProps {
   stream: DetectedStream | null;
@@ -343,6 +344,14 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
         </div>
       </div>
 
+      {/* Bitrate Ladder Visualization */}
+      {manifest?.videoVariants && manifest.videoVariants.length > 0 && (
+        <div className="overview-section">
+          <h4 className="section-title">Bitrate Ladder</h4>
+          <BitrateLadder variants={manifest.videoVariants} />
+        </div>
+      )}
+
       {/* Request Headers (if available) */}
       {info.requestHeaders && Object.keys(info.requestHeaders).length > 0 && (
         <div className="overview-section">
@@ -366,6 +375,80 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
   );
 }
 
+// Bitrate Ladder Visualization Component
+function BitrateLadder({ variants }: { variants: VideoVariant[] }) {
+  // Sort by resolution (height) descending
+  const sortedVariants = [...variants].sort((a, b) => (b.height || 0) - (a.height || 0));
+
+  // Find max bandwidth for scaling
+  const maxBandwidth = Math.max(...variants.map(v => v.bandwidth || 0));
+
+  // Resolution labels
+  const getResolutionLabel = (height: number): string => {
+    if (height >= 2160) return '4K';
+    if (height >= 1440) return '2K';
+    if (height >= 1080) return '1080p';
+    if (height >= 720) return '720p';
+    if (height >= 480) return '480p';
+    if (height >= 360) return '360p';
+    if (height >= 240) return '240p';
+    return `${height}p`;
+  };
+
+  // Quality tier color
+  const getQualityColor = (height: number): string => {
+    if (height >= 2160) return '#8b5cf6'; // Purple - 4K
+    if (height >= 1080) return '#10b981'; // Green - HD
+    if (height >= 720) return '#3b82f6';  // Blue - HD Ready
+    if (height >= 480) return '#f59e0b';  // Amber - SD
+    return '#6b7280';                      // Gray - Low
+  };
+
+  return (
+    <div className="bitrate-ladder">
+      {sortedVariants.map((variant, i) => {
+        const height = variant.height || 0;
+        const bandwidth = variant.bandwidth || 0;
+        const widthPercent = maxBandwidth > 0 ? (bandwidth / maxBandwidth) * 100 : 0;
+        const color = getQualityColor(height);
+
+        return (
+          <div key={i} className="ladder-row">
+            <div className="ladder-label">
+              <span className="ladder-resolution">{getResolutionLabel(height)}</span>
+              <span className="ladder-dimensions">{variant.width}×{height}</span>
+            </div>
+            <div className="ladder-bar-container">
+              <div
+                className="ladder-bar"
+                style={{
+                  width: `${Math.max(widthPercent, 5)}%`,
+                  backgroundColor: color,
+                }}
+              />
+              <span className="ladder-bitrate">{formatBitrate(bandwidth)}</span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="ladder-legend">
+        <span className="legend-item">
+          <span className="legend-dot" style={{ backgroundColor: '#8b5cf6' }} />4K
+        </span>
+        <span className="legend-item">
+          <span className="legend-dot" style={{ backgroundColor: '#10b981' }} />Full HD
+        </span>
+        <span className="legend-item">
+          <span className="legend-dot" style={{ backgroundColor: '#3b82f6' }} />HD
+        </span>
+        <span className="legend-item">
+          <span className="legend-dot" style={{ backgroundColor: '#f59e0b' }} />SD
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // Network request type for Payload tab
 interface SegmentRequest {
   id: string;
@@ -379,6 +462,39 @@ interface SegmentRequest {
   sequenceNumber?: number;
   method?: string;
   mimeType?: string;
+  mediaDuration?: number; // Media duration in seconds (from manifest)
+}
+
+// Helper to find media duration by matching segment URL to manifest segments
+function findSegmentMediaDuration(url: string, manifest?: ParsedManifest): number | undefined {
+  if (!manifest?.segments?.length) return undefined;
+
+  // Try exact match first
+  const exactMatch = manifest.segments.find(seg => seg.url === url);
+  if (exactMatch) return exactMatch.duration;
+
+  // Try matching by filename (last part of path)
+  try {
+    const urlFilename = new URL(url).pathname.split('/').pop()?.split('?')[0];
+    if (urlFilename) {
+      const filenameMatch = manifest.segments.find(seg => {
+        const segFilename = new URL(seg.url).pathname.split('/').pop()?.split('?')[0];
+        return segFilename === urlFilename;
+      });
+      if (filenameMatch) return filenameMatch.duration;
+    }
+  } catch {
+    // URL parsing failed
+  }
+
+  // Return target duration as fallback if available
+  if (manifest.segments.length > 0) {
+    // Calculate average segment duration from manifest
+    const avgDuration = manifest.segments.reduce((sum, s) => sum + s.duration, 0) / manifest.segments.length;
+    return Math.round(avgDuration * 100) / 100; // Round to 2 decimals
+  }
+
+  return undefined;
 }
 
 // Request Detail Modal Component
@@ -863,6 +979,10 @@ function PayloadTab({ stream }: { stream: DetectedStream }) {
         ) : (
           filteredRequests.slice().reverse().map((req) => {
             const statusInfo = getStatusIcon(req.status);
+            // Look up media duration from manifest for segments
+            const mediaDuration = req.type === 'segment' || req.type === 'init'
+              ? findSegmentMediaDuration(req.url, stream.manifest)
+              : undefined;
             return (
               <div
                 key={req.id}
@@ -880,7 +1000,14 @@ function PayloadTab({ stream }: { stream: DetectedStream }) {
                   {getFilename(req.url)}
                 </span>
                 <span className="payload-size">{formatSize(req.size)}</span>
-                <span className="payload-duration">{formatDurationMs(req.duration)}</span>
+                {mediaDuration !== undefined && (
+                  <span className="payload-media-duration" title="Media duration (from manifest)">
+                    🎬 {mediaDuration.toFixed(1)}s
+                  </span>
+                )}
+                <span className="payload-duration" title="Download time">
+                  ⏱ {formatDurationMs(req.duration)}
+                </span>
                 <span className={`payload-status ${statusInfo.className}`}>
                   {statusInfo.icon} {typeof req.status === 'number' ? req.status : ''}
                 </span>
@@ -910,8 +1037,58 @@ function PayloadTab({ stream }: { stream: DetectedStream }) {
   );
 }
 
+// Expandable Variant Row Component
+function ExpandableVariantRow({
+  children,
+  url,
+  expanded,
+  onToggle
+}: {
+  children: React.ReactNode;
+  url: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className={`expandable-variant ${expanded ? 'expanded' : ''}`}>
+      <div className="table-row clickable" onClick={onToggle}>
+        <span className="expand-indicator">{expanded ? '▼' : '▶'}</span>
+        {children}
+      </div>
+      {expanded && (
+        <div className="variant-details">
+          <div className="variant-url-row">
+            <span className="url-label">URL:</span>
+            <span className="url-value" title={url}>{url}</span>
+            <button
+              className="copy-btn-small"
+              onClick={(e) => { e.stopPropagation(); copyToClipboard(url); }}
+              title="Copy URL"
+            >
+              📋
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ManifestTab({ stream }: { stream: DetectedStream }) {
   const { manifest } = stream;
+  const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
+
+  const toggleVariant = (key: string) => {
+    setExpandedVariants(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   if (!manifest) {
     return (
@@ -967,21 +1144,30 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
       {videoVariants.length > 0 && (
         <div className="manifest-section">
           <h4 className="section-title">Video Variants ({videoVariants.length})</h4>
-          <div className="variants-table">
+          <div className="variants-table expandable">
             <div className="table-header">
+              <span></span>
               <span>Resolution</span>
               <span>Bandwidth</span>
               <span>Codecs</span>
             </div>
             {[...videoVariants]
               .sort((a, b) => (b.height || 0) - (a.height || 0))
-              .map((variant, i) => (
-                <div key={i} className="table-row">
-                  <span>{variant.width || 0}x{variant.height || 0}</span>
-                  <span>{formatBitrate(variant.bandwidth || 0)}</span>
-                  <span className="codecs">{variant.codecs || '—'}</span>
-                </div>
-              ))}
+              .map((variant, i) => {
+                const key = `video-${i}`;
+                return (
+                  <ExpandableVariantRow
+                    key={key}
+                    url={variant.url}
+                    expanded={expandedVariants.has(key)}
+                    onToggle={() => toggleVariant(key)}
+                  >
+                    <span>{variant.width || 0}x{variant.height || 0}</span>
+                    <span>{formatBitrate(variant.bandwidth || 0)}</span>
+                    <span className="codecs">{variant.codecs || '—'}</span>
+                  </ExpandableVariantRow>
+                );
+              })}
           </div>
         </div>
       )}
@@ -990,19 +1176,28 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
       {audioVariants.length > 0 && (
         <div className="manifest-section">
           <h4 className="section-title">Audio Tracks ({audioVariants.length})</h4>
-          <div className="variants-table">
+          <div className="variants-table expandable">
             <div className="table-header">
+              <span></span>
               <span>Language</span>
               <span>Name</span>
               <span>Channels</span>
             </div>
-            {audioVariants.map((audio, i) => (
-              <div key={i} className="table-row">
-                <span>{audio.language || '—'}</span>
-                <span>{audio.name || 'Default'}</span>
-                <span>{audio.channels || 2}ch</span>
-              </div>
-            ))}
+            {audioVariants.map((audio, i) => {
+              const key = `audio-${i}`;
+              return (
+                <ExpandableVariantRow
+                  key={key}
+                  url={audio.url}
+                  expanded={expandedVariants.has(key)}
+                  onToggle={() => toggleVariant(key)}
+                >
+                  <span>{audio.language || '—'}</span>
+                  <span>{audio.name || 'Default'}</span>
+                  <span>{audio.channels || 2}ch</span>
+                </ExpandableVariantRow>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1011,14 +1206,36 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
       {subtitles.length > 0 && (
         <div className="manifest-section">
           <h4 className="section-title">Subtitles ({subtitles.length})</h4>
-          <div className="subtitle-list">
-            {subtitles.map((sub, i) => (
-              <div key={i} className="subtitle-item">
-                <span className="lang-badge">{sub.language || 'UND'}</span>
-                <span>{sub.name || 'Unnamed'}</span>
-                {sub.forced && <span className="forced-badge">Forced</span>}
-              </div>
-            ))}
+          <div className="subtitle-list expandable">
+            {subtitles.map((sub, i) => {
+              const key = `sub-${i}`;
+              const isExpanded = expandedVariants.has(key);
+              return (
+                <div key={i} className={`subtitle-item expandable ${isExpanded ? 'expanded' : ''}`}>
+                  <div className="subtitle-header clickable" onClick={() => toggleVariant(key)}>
+                    <span className="expand-indicator">{isExpanded ? '▼' : '▶'}</span>
+                    <span className="lang-badge">{sub.language || 'UND'}</span>
+                    <span>{sub.name || 'Unnamed'}</span>
+                    {sub.forced && <span className="forced-badge">Forced</span>}
+                  </div>
+                  {isExpanded && (
+                    <div className="variant-details">
+                      <div className="variant-url-row">
+                        <span className="url-label">URL:</span>
+                        <span className="url-value" title={sub.url}>{sub.url}</span>
+                        <button
+                          className="copy-btn-small"
+                          onClick={(e) => { e.stopPropagation(); copyToClipboard(sub.url); }}
+                          title="Copy URL"
+                        >
+                          📋
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1050,6 +1267,149 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
   );
 }
 
+// Buffer Health Indicator Component
+interface BufferHealthProps {
+  currentTime: number;
+  buffered: Array<{ start: number; end: number }>;
+  duration: number;
+}
+
+type BufferHealthState = 'critical' | 'warning' | 'good' | 'healthy';
+
+function getBufferHealth(bufferAhead: number): { state: BufferHealthState; label: string; color: string } {
+  if (bufferAhead < 2) {
+    return { state: 'critical', label: 'Critical', color: '#ef4444' }; // Red
+  }
+  if (bufferAhead < 5) {
+    return { state: 'warning', label: 'Warning', color: '#f59e0b' }; // Amber
+  }
+  if (bufferAhead < 10) {
+    return { state: 'good', label: 'Good', color: '#3b82f6' }; // Blue
+  }
+  return { state: 'healthy', label: 'Healthy', color: '#10b981' }; // Green
+}
+
+function BufferHealthIndicator({ currentTime, buffered, duration }: BufferHealthProps) {
+  // Calculate buffer ahead (time buffered beyond current playhead)
+  let bufferAhead = 0;
+  let bufferStart = currentTime;
+  let bufferEnd = currentTime;
+
+  if (buffered && buffered.length > 0) {
+    // Find the buffer range that contains current time
+    for (const range of buffered) {
+      if (range.start <= currentTime && range.end > currentTime) {
+        bufferStart = range.start;
+        bufferEnd = range.end;
+        bufferAhead = range.end - currentTime;
+        break;
+      }
+      // If we're before this range, use the first range
+      if (range.start > currentTime) {
+        bufferStart = range.start;
+        bufferEnd = range.end;
+        bufferAhead = 0;
+        break;
+      }
+    }
+  }
+
+  const health = getBufferHealth(bufferAhead);
+
+  // Calculate visual percentages for the buffer bar
+  // Scale based on a max display of 30 seconds for better visualization
+  const maxDisplayBuffer = 30;
+  const bufferPercent = Math.min((bufferAhead / maxDisplayBuffer) * 100, 100);
+
+  // Timeline position indicators (for VOD)
+  const playheadPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const bufferEndPercent = duration > 0 ? (bufferEnd / duration) * 100 : 0;
+
+  return (
+    <div className="buffer-health">
+      {/* Header with status */}
+      <div className="buffer-health-header">
+        <div className="buffer-health-title">
+          <span className="buffer-health-icon" style={{ color: health.color }}>
+            {health.state === 'critical' ? '⚠️' : health.state === 'warning' ? '⏳' : '✓'}
+          </span>
+          <span>Buffer Health</span>
+        </div>
+        <div className="buffer-health-status" style={{ backgroundColor: health.color }}>
+          {health.label}
+        </div>
+      </div>
+
+      {/* Main buffer bar */}
+      <div className="buffer-bar-container">
+        <div className="buffer-bar-label">
+          <span>0s</span>
+          <span className="buffer-ahead-value">{bufferAhead.toFixed(1)}s ahead</span>
+          <span>{maxDisplayBuffer}s</span>
+        </div>
+        <div className="buffer-bar">
+          <div
+            className="buffer-bar-fill"
+            style={{
+              width: `${bufferPercent}%`,
+              backgroundColor: health.color,
+            }}
+          />
+          {/* Threshold markers */}
+          <div className="buffer-threshold critical" style={{ left: `${(2 / maxDisplayBuffer) * 100}%` }} title="Critical: 2s" />
+          <div className="buffer-threshold warning" style={{ left: `${(5 / maxDisplayBuffer) * 100}%` }} title="Warning: 5s" />
+          <div className="buffer-threshold good" style={{ left: `${(10 / maxDisplayBuffer) * 100}%` }} title="Good: 10s" />
+        </div>
+      </div>
+
+      {/* Timeline view (for VOD) */}
+      {duration > 0 && (
+        <div className="buffer-timeline">
+          <div className="buffer-timeline-label">
+            <span>Timeline</span>
+            <span className="buffer-timeline-info">
+              {formatDuration(currentTime)} / {formatDuration(duration)}
+            </span>
+          </div>
+          <div className="buffer-timeline-bar">
+            {/* Buffered range */}
+            <div
+              className="buffer-timeline-buffered"
+              style={{
+                left: `${(bufferStart / duration) * 100}%`,
+                width: `${((bufferEnd - bufferStart) / duration) * 100}%`,
+              }}
+            />
+            {/* Playhead indicator */}
+            <div
+              className="buffer-timeline-playhead"
+              style={{ left: `${playheadPercent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Buffer stats grid */}
+      <div className="buffer-stats">
+        <div className="buffer-stat">
+          <span className="buffer-stat-label">Ahead</span>
+          <span className="buffer-stat-value">{bufferAhead.toFixed(1)}s</span>
+        </div>
+        <div className="buffer-stat">
+          <span className="buffer-stat-label">Range</span>
+          <span className="buffer-stat-value">
+            {formatDuration(bufferStart)} - {formatDuration(bufferEnd)}
+          </span>
+        </div>
+        <div className="buffer-stat">
+          <span className="buffer-stat-label">Ranges</span>
+          <span className="buffer-stat-value">{buffered?.length || 0}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MetricsTab({ stream }: { stream: DetectedStream }) {
   const metrics = stream.metrics || [];
   const latestMetrics = metrics.length > 0 ? metrics[metrics.length - 1] : null;
@@ -1063,8 +1423,20 @@ function MetricsTab({ stream }: { stream: DetectedStream }) {
     );
   }
 
+  // Calculate buffer ahead for the metric card
+  const bufferAhead = latestMetrics.buffered?.length > 0
+    ? latestMetrics.buffered[0].end - latestMetrics.currentTime
+    : 0;
+
   return (
     <div className="metrics-details">
+      {/* Buffer Health Indicator */}
+      <BufferHealthIndicator
+        currentTime={latestMetrics.currentTime}
+        buffered={latestMetrics.buffered || []}
+        duration={latestMetrics.duration}
+      />
+
       <div className="metrics-grid">
         <div className="metric-card">
           <div className="metric-label">Current Time</div>
@@ -1082,14 +1454,6 @@ function MetricsTab({ stream }: { stream: DetectedStream }) {
           <div className="metric-label">Resolution</div>
           <div className="metric-value">
             {latestMetrics.resolution?.width || 0}x{latestMetrics.resolution?.height || 0}
-          </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-label">Buffer</div>
-          <div className="metric-value">
-            {latestMetrics.buffered?.length > 0
-              ? `${(latestMetrics.buffered[0].end - latestMetrics.currentTime).toFixed(1)}s`
-              : '—'}
           </div>
         </div>
         <div className="metric-card">

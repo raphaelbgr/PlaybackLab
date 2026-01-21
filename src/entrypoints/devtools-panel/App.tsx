@@ -29,14 +29,15 @@ export function App() {
 }
 
 function AppContent() {
-  const { addStream, clearAll, activeTab, setActiveTab, updateAllPlaybackStates, updateManifest } = useStore();
+  const { addStream, clearAll, activeTab, setActiveTab, updateAllPlaybackStates, updateManifest, selectStreamByUrl, selectStream } = useStore();
   const streams = useStreamsList();
   const selectedStream = useSelectedStream();
   const [currentTab, setCurrentTab] = useState<TabId>(activeTab as TabId);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [videoOverlaysEnabled, setVideoOverlaysEnabled] = useState(false);
 
-  // Listen for stream detection, manifest loaded, and playback state messages (scoped to current tab)
+  // Listen for stream detection, manifest loaded, playback state, and page selection messages (scoped to current tab)
   useEffect(() => {
     const inspectedTabId = chrome.devtools.inspectedWindow.tabId;
 
@@ -47,7 +48,13 @@ function AppContent() {
       manifest: ParsedManifest;
     }
 
-    const handleMessage = (message: { type: string; payload?: StreamInfo | { tabId: number; streams: StreamInfo[] } | ManifestLoadedPayload }) => {
+    interface SelectStreamPayload {
+      url: string;
+      streamId: string | null;
+      videoIndex: number;
+    }
+
+    const handleMessage = (message: { type: string; payload?: StreamInfo | { tabId: number; streams: StreamInfo[] } | ManifestLoadedPayload | SelectStreamPayload }) => {
       if (message.type === 'STREAM_DETECTED' && message.payload) {
         const stream = message.payload as StreamInfo;
         // Only add streams from the inspected tab
@@ -66,6 +73,16 @@ function AppContent() {
         if (tabId === inspectedTabId) {
           updateAllPlaybackStates(updatedStreams);
         }
+      } else if (message.type === 'SELECT_STREAM_IN_PANEL' && message.payload) {
+        // User clicked on a video overlay - select the stream
+        const { url, streamId } = message.payload as SelectStreamPayload;
+        if (streamId) {
+          selectStream(streamId);
+        } else if (url) {
+          selectStreamByUrl(url);
+        }
+        // Switch to streams tab to show selection
+        setCurrentTab('streams');
       }
     };
 
@@ -81,16 +98,43 @@ function AppContent() {
       }
     });
 
+    // Check initial overlay status
+    chrome.runtime.sendMessage({ type: 'GET_VIDEO_OVERLAY_STATUS', tabId: inspectedTabId }, (response) => {
+      if (response?.enabled) {
+        setVideoOverlaysEnabled(true);
+      }
+    });
+
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };
-  }, [addStream, updateManifest, updateAllPlaybackStates]);
+  }, [addStream, updateManifest, updateAllPlaybackStates, selectStream, selectStreamByUrl]);
 
   const handleClearAll = () => {
     const tabId = chrome.devtools.inspectedWindow.tabId;
     chrome.runtime.sendMessage({ type: 'CLEAR_TAB', tabId });
     clearAll();
   };
+
+  // Toggle video overlays on page
+  const handleToggleVideoOverlays = useCallback(() => {
+    const tabId = chrome.devtools.inspectedWindow.tabId;
+    const newState = !videoOverlaysEnabled;
+
+    if (newState) {
+      chrome.runtime.sendMessage({ type: 'ENABLE_VIDEO_OVERLAYS', tabId }, (response) => {
+        if (response?.success) {
+          setVideoOverlaysEnabled(true);
+        }
+      });
+    } else {
+      chrome.runtime.sendMessage({ type: 'DISABLE_VIDEO_OVERLAYS', tabId }, (response) => {
+        if (response?.success) {
+          setVideoOverlaysEnabled(false);
+        }
+      });
+    }
+  }, [videoOverlaysEnabled]);
 
   // Copy selected stream URL as cURL
   const handleCopyAsCurl = useCallback(() => {
@@ -113,6 +157,7 @@ function AppContent() {
     // Actions
     { id: 'action-clear', label: 'Clear All Streams', category: 'action', icon: '🗑️', shortcut: 'Ctrl+Shift+X', action: handleClearAll },
     { id: 'action-copy-curl', label: 'Copy as cURL', category: 'action', icon: '📋', shortcut: 'Ctrl+Shift+C', action: handleCopyAsCurl },
+    { id: 'action-toggle-overlays', label: videoOverlaysEnabled ? 'Hide Video Overlays' : 'Show Video Overlays', category: 'action', icon: '🎬', shortcut: 'Ctrl+Shift+O', action: handleToggleVideoOverlays },
     // Settings
     { id: 'settings-open', label: 'Open Settings', category: 'settings', icon: '⚙️', shortcut: 'Ctrl+,', action: () => setSettingsOpen(true) },
     // Help
@@ -128,6 +173,7 @@ function AppContent() {
     { key: '3', ctrl: true, description: 'Go to Export', action: () => setCurrentTab('export') },
     { key: 'c', ctrl: true, shift: true, description: 'Copy as cURL', action: handleCopyAsCurl },
     { key: 'x', ctrl: true, shift: true, description: 'Clear All', action: handleClearAll },
+    { key: 'o', ctrl: true, shift: true, description: 'Toggle Video Overlays', action: handleToggleVideoOverlays },
     { key: 'Escape', description: 'Close dialogs', action: () => { setCommandPaletteOpen(false); setSettingsOpen(false); } },
   ]);
 
@@ -150,6 +196,13 @@ function AppContent() {
           </span>
         </div>
         <div className="header-right">
+          <button
+            className={`btn btn-overlay-toggle ${videoOverlaysEnabled ? 'active' : ''}`}
+            onClick={handleToggleVideoOverlays}
+            title={videoOverlaysEnabled ? 'Hide video overlays on page' : 'Show video overlays on page'}
+          >
+            {videoOverlaysEnabled ? '🎬 Overlays ON' : '🎬 Overlays'}
+          </button>
           <button
             className="btn btn-icon"
             onClick={() => setCommandPaletteOpen(true)}

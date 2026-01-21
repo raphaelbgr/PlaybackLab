@@ -11,7 +11,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { generateCurlCommand, copyToClipboard } from '../../../shared/utils/copyAsCurl';
 import { useToast } from './Toast';
 import { safeUpperCase, typeToClassName, formatBitrateShort, getFilenameFromUrl, getDisplayUrl, getStreamGroupKey, cleanPageTitle } from '../../../shared/utils/stringUtils';
-import type { PlaybackState } from '../../../core/interfaces/IStreamDetector';
+import type { PlaybackState, StreamContentType, StreamRole } from '../../../core/interfaces/IStreamDetector';
 
 // Playback Status Indicator Component
 function PlaybackStatusIndicator({ state, isActive, showLabel = false }: { state?: PlaybackState; isActive?: boolean; showLabel?: boolean }) {
@@ -72,6 +72,54 @@ function AudioIndicator({ hasAudio, isMuted, isPlaying }: { hasAudio?: boolean; 
   );
 }
 
+// Content Type Indicator Component
+function ContentTypeIndicator({ contentType }: { contentType?: StreamContentType }) {
+  if (!contentType || contentType === 'unknown') {
+    return null;
+  }
+
+  const config: Record<StreamContentType, { icon: string; label: string; className: string }> = {
+    video: { icon: '🎬', label: 'VIDEO', className: 'content-video' },
+    audio: { icon: '🎵', label: 'AUDIO', className: 'content-audio' },
+    subtitle: { icon: '📝', label: 'SUBS', className: 'content-subtitle' },
+    mixed: { icon: '📦', label: 'MIXED', className: 'content-mixed' },
+    unknown: { icon: '❓', label: '', className: '' },
+  };
+
+  const { icon, label, className } = config[contentType];
+
+  return (
+    <span className={`content-type-badge ${className}`} title={`Content type: ${contentType}`}>
+      <span className="content-icon">{icon}</span>
+      <span className="content-label">{label}</span>
+    </span>
+  );
+}
+
+// Role Indicator Component (for hierarchy visualization)
+function RoleIndicator({ role }: { role?: StreamRole }) {
+  if (!role || role === 'standalone') {
+    return null;
+  }
+
+  const config: Record<StreamRole, { icon: string; label: string; className: string; indent: number }> = {
+    master: { icon: '👑', label: 'MASTER', className: 'role-master', indent: 0 },
+    variant: { icon: '├─', label: 'variant', className: 'role-variant', indent: 1 },
+    'audio-track': { icon: '├─', label: 'audio', className: 'role-audio', indent: 1 },
+    'subtitle-track': { icon: '├─', label: 'subs', className: 'role-subtitle', indent: 1 },
+    standalone: { icon: '', label: '', className: '', indent: 0 },
+  };
+
+  const { icon, label, className } = config[role];
+
+  return (
+    <span className={`role-badge ${className}`} title={`Role: ${role}`}>
+      <span className="role-icon">{icon}</span>
+      <span className="role-label">{label}</span>
+    </span>
+  );
+}
+
 // Stream group type
 interface StreamGroup {
   key: string;
@@ -83,6 +131,7 @@ interface StreamGroup {
   hasPlaying: boolean;
   hasAudio: boolean;
   primaryPlaybackState?: PlaybackState;
+  primaryContentType?: StreamContentType;
 }
 
 export function StreamsPanel() {
@@ -126,6 +175,10 @@ export function StreamsPanel() {
         if (stream.info.pageTitle && !existing.pageTitle) {
           existing.pageTitle = stream.info.pageTitle;
         }
+        // Use the first defined content type
+        if (stream.info.contentType && !existing.primaryContentType) {
+          existing.primaryContentType = stream.info.contentType;
+        }
       } else {
         try {
           const urlObj = new URL(stream.info.url);
@@ -139,6 +192,7 @@ export function StreamsPanel() {
             hasPlaying: stream.info.playbackState === 'playing',
             hasAudio: !!stream.info.hasAudio,
             primaryPlaybackState: stream.info.playbackState,
+            primaryContentType: stream.info.contentType,
           });
         } catch {
           // Invalid URL, create ungrouped entry
@@ -152,6 +206,7 @@ export function StreamsPanel() {
             hasPlaying: stream.info.playbackState === 'playing',
             hasAudio: !!stream.info.hasAudio,
             primaryPlaybackState: stream.info.playbackState,
+            primaryContentType: stream.info.contentType,
           });
         }
       }
@@ -338,6 +393,9 @@ function StreamGroupCard({
           {safeUpperCase(firstStream.info.type)}
         </span>
 
+        {/* Content Type Badge */}
+        <ContentTypeIndicator contentType={group.primaryContentType} />
+
         {/* Playback Status Badge with Label for active streams */}
         <PlaybackStatusIndicator
           state={group.primaryPlaybackState}
@@ -371,13 +429,16 @@ function StreamGroupCard({
         <div className="stream-group-items">
           {group.streams.map((stream, index) => {
             const itemIsPlaying = stream.info.playbackState === 'playing';
+            const role = stream.info.role;
+            const isChild = role === 'variant' || role === 'audio-track' || role === 'subtitle-track';
             return (
               <div
                 key={stream.info.id}
-                className={`stream-group-item ${selectedStreamId === stream.info.id ? 'selected' : ''} ${itemIsPlaying ? 'is-playing' : ''}`}
+                className={`stream-group-item ${selectedStreamId === stream.info.id ? 'selected' : ''} ${itemIsPlaying ? 'is-playing' : ''} ${isChild ? 'child-stream' : ''}`}
                 onClick={() => onSelectStream(stream.info.id)}
               >
-                <span className="item-index">#{index + 1}</span>
+                <RoleIndicator role={stream.info.role} />
+                <ContentTypeIndicator contentType={stream.info.contentType} />
                 <PlaybackStatusIndicator state={stream.info.playbackState} isActive={stream.info.isActive} />
                 <AudioIndicator
                   hasAudio={stream.info.hasAudio}
@@ -385,7 +446,7 @@ function StreamGroupCard({
                   isPlaying={itemIsPlaying}
                 />
                 <span className="item-url" title={stream.info.url}>
-                  {getDisplayUrl(stream.info.url, 35)}
+                  {getDisplayUrl(stream.info.url, 30)}
                 </span>
                 <span className="item-time">
                   {formatDistanceToNow(stream.info.detectedAt, { addSuffix: true })}
@@ -460,6 +521,9 @@ function ExpandableStreamCard({
         <span className={`type-badge ${typeToClassName(info.type)}`}>
           {safeUpperCase(info.type)}
         </span>
+
+        {/* Content Type Badge */}
+        <ContentTypeIndicator contentType={info.contentType} />
 
         {/* Playback Status Badge with Label for active streams */}
         <PlaybackStatusIndicator
