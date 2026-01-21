@@ -893,27 +893,37 @@ export default defineContentScript({
     };
 
     const getStreamTypeForVideo = (video: HTMLVideoElement): { type: string; url: string; streamId: string | null } => {
+      // Extended type checking for various player libraries
       const videoEl = video as HTMLVideoElement & {
-        hls?: { url?: string };
+        hls?: { url?: string; levels?: unknown[] };
         shaka?: { getAssetUri?: () => string };
         player?: { getSource?: () => { src: string } | string };
         dashPlayer?: { getSource?: () => string };
+        plyr?: { source?: { sources?: Array<{ src: string; type?: string }> } };
       };
 
       let url = '';
-      let type = 'VIDEO';
+      let type = 'VIDEO'; // Default - never show "MSE" to users
       let streamId: string | null = null;
+      let detectedFromPlayer = false;
 
-      // Check HLS.js - most common
+      // Check HLS.js - most common (check multiple ways)
       if (videoEl.hls?.url) {
         url = videoEl.hls.url;
         type = 'HLS';
+        detectedFromPlayer = true;
+      }
+      // Also check if hls object exists without url (still indicates HLS playback)
+      else if (videoEl.hls && videoEl.hls.levels) {
+        type = 'HLS';
+        detectedFromPlayer = true;
       }
       // Check Shaka Player (supports both HLS and DASH)
       else if (videoEl.shaka?.getAssetUri) {
         try {
           url = videoEl.shaka.getAssetUri() || '';
-          type = url.includes('.mpd') ? 'DASH' : url.includes('.m3u8') ? 'HLS' : 'DASH';
+          type = url.includes('.mpd') ? 'DASH' : url.includes('.m3u8') ? 'HLS' : 'VIDEO';
+          detectedFromPlayer = true;
         } catch {}
       }
       // Check dash.js
@@ -922,78 +932,88 @@ export default defineContentScript({
           const source = videoEl.player.getSource();
           url = typeof source === 'string' ? source : source?.src || '';
           type = 'DASH';
+          detectedFromPlayer = true;
         } catch {}
       }
-      // Check direct src
-      else if (video.currentSrc || video.src) {
+
+      // Check direct src if not detected from player
+      if (!detectedFromPlayer && (video.currentSrc || video.src)) {
         url = video.currentSrc || video.src;
         if (url.includes('.m3u8')) type = 'HLS';
         else if (url.includes('.mpd')) type = 'DASH';
-        else if (url.startsWith('blob:')) type = 'MSE';
+        // blob: URLs mean MSE is being used, but we don't show "MSE" - we'll try to match below
       }
 
-      // Smart URL matching with fallback levels (conservative approach)
-      // Only match when we're confident to avoid selecting wrong stream
-      if (detectedStreamsCache.length > 0 && url && !url.startsWith('blob:')) {
-        // Level 1: Exact URL match (highest confidence)
-        const exactMatch = detectedStreamsCache.find((s) => s.url === url);
-        if (exactMatch) {
-          streamId = exactMatch.id;
-          type = exactMatch.type.toUpperCase();
-          return { type, url, streamId };
-        }
-
-        // Level 2: URL without query params match (tokens/signatures often differ)
-        try {
-          const urlObj = new URL(url);
-          const urlWithoutParams = `${urlObj.origin}${urlObj.pathname}`;
-          const noParamsMatch = detectedStreamsCache.find((s) => {
-            try {
-              const cachedUrl = new URL(s.url);
-              return `${cachedUrl.origin}${cachedUrl.pathname}` === urlWithoutParams;
-            } catch { return false; }
-          });
-          if (noParamsMatch) {
-            streamId = noParamsMatch.id;
-            type = noParamsMatch.type.toUpperCase();
+      // ALWAYS try to match with detected streams cache to get the real type
+      // This is critical for blob: URLs where we can't determine type from URL
+      if (detectedStreamsCache.length > 0) {
+        // If we have a real URL (not blob:), try matching
+        if (url && !url.startsWith('blob:')) {
+          // Level 1: Exact URL match (highest confidence)
+          const exactMatch = detectedStreamsCache.find((s) => s.url === url);
+          if (exactMatch) {
+            streamId = exactMatch.id;
+            type = exactMatch.type.toUpperCase();
             return { type, url, streamId };
           }
-        } catch {}
 
-        // Level 3: Same host + same filename (reasonably confident)
-        try {
-          const urlObj = new URL(url);
-          const urlFilename = urlObj.pathname.split('/').pop();
-          if (urlFilename && (urlFilename.includes('.m3u8') || urlFilename.includes('.mpd'))) {
-            const hostFilenameMatch = detectedStreamsCache.find((s) => {
+          // Level 2: URL without query params match (tokens/signatures often differ)
+          try {
+            const urlObj = new URL(url);
+            const urlWithoutParams = `${urlObj.origin}${urlObj.pathname}`;
+            const noParamsMatch = detectedStreamsCache.find((s) => {
               try {
                 const cachedUrl = new URL(s.url);
-                const cachedFilename = cachedUrl.pathname.split('/').pop();
-                return cachedUrl.host === urlObj.host && cachedFilename === urlFilename;
+                return `${cachedUrl.origin}${cachedUrl.pathname}` === urlWithoutParams;
               } catch { return false; }
             });
-            if (hostFilenameMatch) {
-              streamId = hostFilenameMatch.id;
-              type = hostFilenameMatch.type.toUpperCase();
+            if (noParamsMatch) {
+              streamId = noParamsMatch.id;
+              type = noParamsMatch.type.toUpperCase();
               return { type, url, streamId };
             }
-          }
-        } catch {}
-      }
+          } catch {}
 
-      // For blob:/MSE videos - only match if we're confident
-      if ((type === 'MSE' || type === 'VIDEO' || url.startsWith('blob:')) && detectedStreamsCache.length > 0) {
-        // Only auto-match if there's exactly one stream (very high confidence)
-        if (detectedStreamsCache.length === 1) {
-          const singleStream = detectedStreamsCache[0];
-          streamId = singleStream.id;
-          type = singleStream.type.toUpperCase();
-          url = singleStream.url;
-          return { type, url, streamId };
+          // Level 3: Same host + same filename (reasonably confident)
+          try {
+            const urlObj = new URL(url);
+            const urlFilename = urlObj.pathname.split('/').pop();
+            if (urlFilename && (urlFilename.includes('.m3u8') || urlFilename.includes('.mpd'))) {
+              const hostFilenameMatch = detectedStreamsCache.find((s) => {
+                try {
+                  const cachedUrl = new URL(s.url);
+                  const cachedFilename = cachedUrl.pathname.split('/').pop();
+                  return cachedUrl.host === urlObj.host && cachedFilename === urlFilename;
+                } catch { return false; }
+              });
+              if (hostFilenameMatch) {
+                streamId = hostFilenameMatch.id;
+                type = hostFilenameMatch.type.toUpperCase();
+                return { type, url, streamId };
+              }
+            }
+          } catch {}
         }
 
-        // If multiple streams, don't guess - show as MSE/VIDEO and let user select
-        // This prevents selecting the wrong stream
+        // For blob: URLs or when type is still VIDEO, use detected stream info
+        // This ensures we show HLS/DASH instead of VIDEO when possible
+        if (url.startsWith('blob:') || type === 'VIDEO') {
+          // If exactly one stream, use it (very high confidence)
+          if (detectedStreamsCache.length === 1) {
+            const singleStream = detectedStreamsCache[0];
+            streamId = singleStream.id;
+            type = singleStream.type.toUpperCase();
+            url = singleStream.url;
+            return { type, url, streamId };
+          }
+
+          // If multiple streams but all same type, use that type
+          const streamTypes = new Set(detectedStreamsCache.map(s => s.type));
+          if (streamTypes.size === 1) {
+            type = detectedStreamsCache[0].type.toUpperCase();
+            // Don't set streamId - let user select which stream
+          }
+        }
       }
 
       return { type, url, streamId };
@@ -1060,10 +1080,17 @@ export default defineContentScript({
         const badge = document.createElement('div');
         badge.className = 'playbacklab-overlay-badge';
 
+        // Get tooltip text based on type
+        const typeTooltips: Record<string, string> = {
+          'HLS': 'HLS (HTTP Live Streaming) - Apple\'s adaptive streaming protocol. Click to inspect.',
+          'DASH': 'DASH (Dynamic Adaptive Streaming over HTTP) - MPEG standard for adaptive streaming. Click to inspect.',
+          'VIDEO': 'Video element detected. Stream type unknown - click to view in PlaybackLab.',
+        };
+
         const typeBadge = document.createElement('div');
         typeBadge.className = `playbacklab-overlay-type ${type.toLowerCase()}`;
         typeBadge.textContent = type;
-        typeBadge.title = 'Click to inspect in PlaybackLab';
+        typeBadge.title = typeTooltips[type] || `${type} stream detected. Click to inspect in PlaybackLab.`;
         typeBadge.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();

@@ -13,18 +13,29 @@ import { useToast } from './Toast';
 import { safeUpperCase, typeToClassName, formatBitrateShort, getFilenameFromUrl, getDisplayUrl, getStreamGroupKey, cleanPageTitle } from '../../../shared/utils/stringUtils';
 import type { PlaybackState, StreamContentType, StreamRole } from '../../../core/interfaces/IStreamDetector';
 
+// Helper function to get tooltip for stream type
+function getStreamTypeTooltip(type: string | undefined): string {
+  const tooltips: Record<string, string> = {
+    hls: 'HLS (HTTP Live Streaming) - Apple\'s adaptive bitrate streaming protocol, widely used for video delivery',
+    dash: 'DASH (Dynamic Adaptive Streaming over HTTP) - International standard for adaptive streaming',
+    mse: 'MSE (Media Source Extensions) - Browser API used by players to handle streaming',
+    video: 'Direct video file or unknown stream type',
+  };
+  return tooltips[(type || '').toLowerCase()] || `${type || 'Unknown'} stream`;
+}
+
 // Playback Status Indicator Component
 function PlaybackStatusIndicator({ state, isActive, showLabel = false }: { state?: PlaybackState; isActive?: boolean; showLabel?: boolean }) {
   // Determine the effective state
   const effectiveState = state || (isActive ? 'playing' : 'idle');
 
-  const statusConfig: Record<PlaybackState, { icon: string; label: string; className: string }> = {
-    playing: { icon: '▶', label: 'PLAYING', className: 'playing' },
-    paused: { icon: '⏸', label: 'PAUSED', className: 'paused' },
-    buffering: { icon: '◐', label: 'BUFFERING', className: 'buffering' },
-    stalled: { icon: '⚠', label: 'STALLED', className: 'stalled' },
-    ended: { icon: '⏹', label: 'ENDED', className: 'ended' },
-    idle: { icon: '○', label: '', className: 'idle' },
+  const statusConfig: Record<PlaybackState, { icon: string; label: string; className: string; tooltip: string }> = {
+    playing: { icon: '▶', label: 'PLAYING', className: 'playing', tooltip: 'Video is currently playing' },
+    paused: { icon: '⏸', label: 'PAUSED', className: 'paused', tooltip: 'Video is paused' },
+    buffering: { icon: '◐', label: 'BUFFERING', className: 'buffering', tooltip: 'Video is buffering - waiting for data' },
+    stalled: { icon: '⚠', label: 'STALLED', className: 'stalled', tooltip: 'Playback stalled - network issue or slow connection' },
+    ended: { icon: '⏹', label: 'ENDED', className: 'ended', tooltip: 'Video playback has ended' },
+    idle: { icon: '○', label: '', className: 'idle', tooltip: 'Stream detected but not actively playing' },
   };
 
   const config = statusConfig[effectiveState];
@@ -32,7 +43,7 @@ function PlaybackStatusIndicator({ state, isActive, showLabel = false }: { state
   // Show label badge for active states
   if (showLabel && effectiveState !== 'idle') {
     return (
-      <span className={`playback-status-badge ${config.className}`} title={config.label}>
+      <span className={`playback-status-badge ${config.className}`} title={config.tooltip}>
         <span className="playback-icon">{config.icon}</span>
         <span className="playback-label">{config.label}</span>
       </span>
@@ -40,7 +51,7 @@ function PlaybackStatusIndicator({ state, isActive, showLabel = false }: { state
   }
 
   return (
-    <span className={`playback-status ${config.className}`} title={config.label}>
+    <span className={`playback-status ${config.className}`} title={config.tooltip}>
       <span className="playback-icon">{config.icon}</span>
     </span>
   );
@@ -78,18 +89,18 @@ function ContentTypeIndicator({ contentType }: { contentType?: StreamContentType
     return null;
   }
 
-  const config: Record<StreamContentType, { icon: string; label: string; className: string }> = {
-    video: { icon: '🎬', label: 'VIDEO', className: 'content-video' },
-    audio: { icon: '🎵', label: 'AUDIO', className: 'content-audio' },
-    subtitle: { icon: '📝', label: 'SUBS', className: 'content-subtitle' },
-    mixed: { icon: '📦', label: 'MIXED', className: 'content-mixed' },
-    unknown: { icon: '❓', label: '', className: '' },
+  const config: Record<StreamContentType, { icon: string; label: string; className: string; tooltip: string }> = {
+    video: { icon: '🎬', label: 'VIDEO', className: 'content-video', tooltip: 'Video content - contains video tracks' },
+    audio: { icon: '🎵', label: 'AUDIO', className: 'content-audio', tooltip: 'Audio-only content - no video tracks' },
+    subtitle: { icon: '📝', label: 'SUBS', className: 'content-subtitle', tooltip: 'Subtitle/caption track' },
+    mixed: { icon: '📦', label: 'MIXED', className: 'content-mixed', tooltip: 'Mixed content - contains multiple media types' },
+    unknown: { icon: '❓', label: '', className: '', tooltip: 'Content type not determined' },
   };
 
-  const { icon, label, className } = config[contentType];
+  const { icon, label, className, tooltip } = config[contentType];
 
   return (
-    <span className={`content-type-badge ${className}`} title={`Content type: ${contentType}`}>
+    <span className={`content-type-badge ${className}`} title={tooltip}>
       <span className="content-icon">{icon}</span>
       <span className="content-label">{label}</span>
     </span>
@@ -102,18 +113,18 @@ function RoleIndicator({ role }: { role?: StreamRole }) {
     return null;
   }
 
-  const config: Record<StreamRole, { icon: string; label: string; className: string; indent: number }> = {
-    master: { icon: '👑', label: 'MASTER', className: 'role-master', indent: 0 },
-    variant: { icon: '├─', label: 'variant', className: 'role-variant', indent: 1 },
-    'audio-track': { icon: '├─', label: 'audio', className: 'role-audio', indent: 1 },
-    'subtitle-track': { icon: '├─', label: 'subs', className: 'role-subtitle', indent: 1 },
-    standalone: { icon: '', label: '', className: '', indent: 0 },
+  const config: Record<StreamRole, { icon: string; label: string; className: string; indent: number; tooltip: string }> = {
+    master: { icon: '👑', label: 'MASTER', className: 'role-master', indent: 0, tooltip: 'Master manifest - index file that lists all available quality levels and tracks' },
+    variant: { icon: '├─', label: 'variant', className: 'role-variant', indent: 1, tooltip: 'Variant playlist - specific quality/bitrate version of the video' },
+    'audio-track': { icon: '├─', label: 'audio', className: 'role-audio', indent: 1, tooltip: 'Audio track - separate audio stream (e.g., different language)' },
+    'subtitle-track': { icon: '├─', label: 'subs', className: 'role-subtitle', indent: 1, tooltip: 'Subtitle track - captions or subtitles' },
+    standalone: { icon: '', label: '', className: '', indent: 0, tooltip: 'Standalone stream' },
   };
 
-  const { icon, label, className } = config[role];
+  const { icon, label, className, tooltip } = config[role];
 
   return (
-    <span className={`role-badge ${className}`} title={`Role: ${role}`}>
+    <span className={`role-badge ${className}`} title={tooltip}>
       <span className="role-icon">{icon}</span>
       <span className="role-label">{label}</span>
     </span>
@@ -405,7 +416,7 @@ function StreamGroupCard({
         <button className="expand-btn">
           {isExpanded ? '▼' : '▶'}
         </button>
-        <span className={`type-badge ${typeToClassName(firstStream.info.type)}`}>
+        <span className={`type-badge ${typeToClassName(firstStream.info.type)}`} title={getStreamTypeTooltip(firstStream.info.type)}>
           {safeUpperCase(firstStream.info.type)}
         </span>
 
@@ -534,7 +545,7 @@ function ExpandableStreamCard({
           {isExpanded ? '▼' : '▶'}
         </button>
 
-        <span className={`type-badge ${typeToClassName(info.type)}`}>
+        <span className={`type-badge ${typeToClassName(info.type)}`} title={getStreamTypeTooltip(info.type)}>
           {safeUpperCase(info.type)}
         </span>
 
