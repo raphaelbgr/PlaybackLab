@@ -11,7 +11,7 @@ import { NetworkInspector } from './components/NetworkInspector';
 import { ExportPanel } from './components/ExportPanel';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { SettingsPanel } from './components/SettingsPanel';
-import { ToastProvider } from './components/Toast';
+import { ToastProvider, useToast } from './components/Toast';
 import { useKeyboardShortcuts } from '../../shared/hooks/useKeyboardShortcuts';
 import { generateCurlCommand, copyToClipboard } from '../../shared/utils/copyAsCurl';
 import type { StreamInfo } from '../../core/interfaces/IStreamDetector';
@@ -33,6 +33,7 @@ function AppContent() {
   const streams = useStreamsList();
   const selectedStream = useSelectedStream();
   const [currentTab, setCurrentTab] = useState<TabId>(activeTab as TabId);
+  const { showToast } = useToast();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [videoOverlaysEnabled, setVideoOverlaysEnabled] = useState(false);
@@ -77,33 +78,44 @@ function AppContent() {
         // User clicked on a video overlay - select the stream
         const { url, streamId } = message.payload as SelectStreamPayload;
         let selected = false;
+        let matchedById = false;
+        let matchedByUrl = false;
 
         // Try by stream ID first (most reliable)
         if (streamId) {
-          selectStream(streamId);
-          selected = true;
+          const state = useStore.getState();
+          if (state.streams.has(streamId)) {
+            selectStream(streamId);
+            selected = true;
+            matchedById = true;
+          }
         }
 
         // Try by URL match
         if (!selected && url && !url.startsWith('blob:')) {
-          selected = selectStreamByUrl(url);
+          matchedByUrl = selectStreamByUrl(url);
+          selected = matchedByUrl;
         }
 
-        // If still not selected and we have streams, select the first active one or just the first
+        // If still not selected, check if we have any streams at all
         if (!selected) {
           const state = useStore.getState();
           const streamsList = Array.from(state.streams.values());
-          if (streamsList.length > 0) {
-            // Prefer an active stream
-            const activeStream = streamsList.find(s => s.info.isActive);
-            const streamToSelect = activeStream || streamsList[0];
-            selectStream(streamToSelect.info.id);
-            selected = true;
-          }
-        }
 
-        // Switch to streams tab to show selection
-        if (selected) {
+          if (streamsList.length === 0) {
+            // No streams detected at all
+            showToast('No streams detected. Try enabling auto-detection or refreshing the page.', 'warning');
+          } else {
+            // We have streams but couldn't match this video to any
+            showToast(
+              `Could not match video to detected streams. The stream may not be captured yet - try refreshing the page with auto-detection enabled.`,
+              'warning'
+            );
+            // Still switch to streams tab so user can manually select
+            setCurrentTab('streams');
+          }
+        } else {
+          // Successfully matched - switch to streams tab
           setCurrentTab('streams');
         }
       }
@@ -131,7 +143,7 @@ function AppContent() {
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };
-  }, [addStream, updateManifest, updateAllPlaybackStates, selectStream, selectStreamByUrl]);
+  }, [addStream, updateManifest, updateAllPlaybackStates, selectStream, selectStreamByUrl, showToast]);
 
   const handleClearAll = () => {
     const tabId = chrome.devtools.inspectedWindow.tabId;
