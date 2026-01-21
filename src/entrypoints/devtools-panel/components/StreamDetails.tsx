@@ -259,22 +259,42 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
     }
   };
 
+  // Determine audio status
+  const hasSeperateAudioTracks = (manifest?.audioVariants?.length ?? 0) > 0;
+  const isAudioEmbedded = info.hasAudio && !hasSeperateAudioTracks;
+  const getAudioStatus = (): string => {
+    if (!info.hasAudio) return '—';
+    if (info.audioMuted) return 'Muted';
+    if (isAudioEmbedded) return 'Embedded';
+    return 'Playing';
+  };
+
+  // Get origin with ellipsis handling
+  const originDomain = getOriginDomain(info.url);
+  const truncateOrigin = (domain: string, maxLen: number = 18): string => {
+    if (domain.length <= maxLen) return domain;
+    return domain.substring(0, maxLen - 1) + '…';
+  };
+
   // Basic info - always available (removed redundant Type - already in header)
   const basicStats = [
     {
       label: 'Status',
       value: info.playbackState ? capitalizeFirst(info.playbackState) : (info.isActive ? 'Active' : 'Detected'),
       icon: info.playbackState === 'playing' ? '▶️' : (info.playbackState === 'paused' ? '⏸️' : '○'),
+      tooltip: '',
     },
     {
       label: 'Audio',
-      value: info.hasAudio ? (info.audioMuted ? 'Muted' : 'Playing') : '—',
+      value: getAudioStatus(),
       icon: info.audioMuted ? '🔇' : '🔊',
+      tooltip: isAudioEmbedded ? 'Audio is muxed/embedded in the video stream' : '',
     },
     {
       label: 'Origin',
-      value: getOriginDomain(info.url),
+      value: truncateOrigin(originDomain),
       icon: '🌐',
+      tooltip: originDomain,
     },
   ];
 
@@ -325,7 +345,7 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
         <h4 className="section-title">Stream Info</h4>
         <div className="overview-grid compact">
           {basicStats.map((stat) => (
-            <div key={stat.label} className="stat-card">
+            <div key={stat.label} className="stat-card" title={stat.tooltip || undefined}>
               <div className="stat-icon">{stat.icon}</div>
               <div className="stat-info">
                 <div className="stat-value">{stat.value}</div>
