@@ -5,7 +5,11 @@
 
 import { streamDetector } from '../../core/services/StreamDetector';
 import type { StreamInfo, PlaybackState } from '../../core/interfaces/IStreamDetector';
+import type { ParsedManifest } from '../../core/interfaces/IManifestParser';
 import { safeGetTab } from '../../shared/utils/chromeApiSafe';
+import { urlsMatch } from '../../shared/utils/stringUtils';
+import { HlsManifestParser } from '../../core/services/HlsManifestParser';
+import { DashManifestParser } from '../../core/services/DashManifestParser';
 
 interface VideoPlaybackInfo {
   src: string;
@@ -44,6 +48,12 @@ export default defineBackground(() => {
   // Track request start times for duration calculation
   const requestStartTimes = new Map<string, number>();
 
+  // Track response sizes from headers
+  const responseSizes = new Map<string, number>();
+
+  // Track response MIME types from headers
+  const responseMimeTypes = new Map<string, string>();
+
   // Track which tabs have auto-detection enabled (default: false for clean start)
   const autoDetectionEnabled = new Map<number, boolean>();
 
@@ -76,9 +86,7 @@ export default defineBackground(() => {
 
           // Check if this stream is active (being played)
           const activeSources = activeVideoSources.get(stream.tabId) || [];
-          stream.isActive = activeSources.some(src =>
-            src === stream.url || stream.url.includes(src) || src.includes(stream.url)
-          );
+          stream.isActive = activeSources.some(src => urlsMatch(src, stream.url));
 
           // Get page info (title, URL) from tab - safely handle closed tabs
           safeGetTab(stream.tabId).then((tab) => {
@@ -99,6 +107,9 @@ export default defineBackground(() => {
                 type: 'STREAM_DETECTED',
                 payload: stream,
               }).catch(() => {});
+
+              // Auto-fetch and parse manifest in background
+              autoFetchManifest(stream);
             }
           });
         }
@@ -111,6 +122,35 @@ export default defineBackground(() => {
     },
     { urls: ['<all_urls>'] },
     []
+  );
+
+  // Listen for response headers to capture size and MIME type
+  chrome.webRequest.onHeadersReceived.addListener(
+    (details) => {
+      if (!networkCaptureEnabled.has(details.tabId)) return;
+
+      // Only process streaming-related requests
+      const url = details.url.toLowerCase();
+      if (!isStreamingRequest(url)) return;
+
+      // Extract Content-Length header
+      const contentLength = details.responseHeaders?.find(
+        h => h.name.toLowerCase() === 'content-length'
+      );
+      if (contentLength?.value) {
+        responseSizes.set(details.requestId, parseInt(contentLength.value, 10) || 0);
+      }
+
+      // Extract Content-Type header
+      const contentType = details.responseHeaders?.find(
+        h => h.name.toLowerCase() === 'content-type'
+      );
+      if (contentType?.value) {
+        responseMimeTypes.set(details.requestId, contentType.value);
+      }
+    },
+    { urls: ['<all_urls>'] },
+    ['responseHeaders']
   );
 
   // Listen for completed requests to capture network info
@@ -126,6 +166,12 @@ export default defineBackground(() => {
       const url = details.url.toLowerCase();
       if (!isStreamingRequest(url)) return;
 
+      // Get size and MIME type from headers (captured in onHeadersReceived)
+      const size = responseSizes.get(details.requestId) || 0;
+      const mimeType = responseMimeTypes.get(details.requestId);
+      responseSizes.delete(details.requestId);
+      responseMimeTypes.delete(details.requestId);
+
       const networkRequest: NetworkRequest = {
         id: details.requestId,
         url: details.url,
@@ -133,10 +179,10 @@ export default defineBackground(() => {
         method: details.method,
         status: details.statusCode,
         statusText: getStatusText(details.statusCode),
-        size: 0,
+        size,
         duration,
         timestamp: Date.now(),
-        mimeType: undefined,
+        mimeType,
       };
 
       // Store request
@@ -275,18 +321,12 @@ export default defineBackground(() => {
           const oldPlaybackState = stream.playbackState;
 
           // Check if stream URL matches any active source
-          const matchingSource = sources.find(src =>
-            src === stream.url || stream.url.includes(src) || src.includes(stream.url)
-          );
+          const matchingSource = sources.find(src => urlsMatch(src, stream.url));
           stream.isActive = !!matchingSource;
 
           // Find matching playback info
           if (playbackInfo && playbackInfo.length > 0) {
-            const matchingPlayback = playbackInfo.find(info =>
-              info.src === stream.url ||
-              stream.url.includes(info.src) ||
-              info.src.includes(stream.url)
-            );
+            const matchingPlayback = playbackInfo.find(info => urlsMatch(info.src, stream.url));
 
             if (matchingPlayback) {
               stream.playbackState = matchingPlayback.playbackState;
@@ -488,6 +528,65 @@ export default defineBackground(() => {
       503: 'Service Unavailable',
     };
     return statusTexts[status] || '';
+  }
+
+  // Auto-fetch and parse manifest when a stream is detected
+  async function autoFetchManifest(stream: StreamInfo): Promise<void> {
+    // Only fetch for HLS and DASH streams
+    if (stream.type !== 'hls' && stream.type !== 'dash') return;
+
+    try {
+      console.log('[PlaybackLab] Auto-fetching manifest:', stream.url);
+
+      const response = await fetch(stream.url, {
+        headers: stream.requestHeaders || {},
+      });
+
+      if (!response.ok) {
+        console.warn('[PlaybackLab] Manifest fetch failed:', response.status);
+        return;
+      }
+
+      const content = await response.text();
+
+      // Parse based on type
+      let manifest: ParsedManifest | null = null;
+
+      if (stream.type === 'hls') {
+        const parser = new HlsManifestParser();
+        if (parser.supports(content, stream.url)) {
+          manifest = await parser.parse(content, stream.url);
+        }
+      } else if (stream.type === 'dash') {
+        const parser = new DashManifestParser();
+        if (parser.supports(content, stream.url)) {
+          manifest = await parser.parse(content, stream.url);
+        }
+      }
+
+      if (manifest) {
+        console.log('[PlaybackLab] Manifest parsed successfully:', {
+          variants: manifest.videoVariants?.length || 0,
+          audioTracks: manifest.audioVariants?.length || 0,
+          drm: manifest.drm?.length || 0,
+        });
+
+        // Send parsed manifest to DevTools panel
+        chrome.runtime.sendMessage({
+          type: 'MANIFEST_LOADED',
+          payload: {
+            streamId: stream.id,
+            streamUrl: stream.url,
+            tabId: stream.tabId,
+            manifest,
+          },
+        }).catch(() => {
+          // DevTools panel not open, ignore
+        });
+      }
+    } catch (error) {
+      console.warn('[PlaybackLab] Auto-fetch manifest error:', error);
+    }
   }
 
   // Log extension startup

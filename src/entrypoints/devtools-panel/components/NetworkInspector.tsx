@@ -27,7 +27,7 @@ interface Props {
 export function NetworkInspector({ stream }: Props) {
   const [requests, setRequests] = useState<NetworkRequest[]>([]);
   const [filter, setFilter] = useState<'all' | 'manifest' | 'segment' | 'error'>('all');
-  const [isCapturing, setIsCapturing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(true); // Auto-start monitoring
   const [selectedRequest, setSelectedRequest] = useState<NetworkRequest | null>(null);
 
   // Listen for network requests from background
@@ -150,7 +150,7 @@ export function NetworkInspector({ stream }: Props) {
   }
 
   return (
-    <div className="network-inspector">
+    <div className="network-inspector scrollable-panel">
       <div className="network-header">
         <h2>Network Inspector</h2>
         <div className="network-actions">

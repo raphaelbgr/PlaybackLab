@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import type { StreamInfo, PlaybackState } from '../core/interfaces/IStreamDetector';
 import type { ParsedManifest } from '../core/interfaces/IManifestParser';
 import type { PlaybackMetrics } from '../core/interfaces/IMetricsCollector';
+import { urlsMatch } from '../shared/utils/stringUtils';
 
 export interface PlaybackUpdate {
   playbackState?: PlaybackState;
@@ -30,7 +31,7 @@ export interface AppState {
   selectedStreamId: string | null;
 
   // UI State
-  activeTab: 'streams' | 'manifest' | 'metrics' | 'drm' | 'network';
+  activeTab: 'streams' | 'network' | 'export';
   isPanelExpanded: boolean;
 
   // Actions
@@ -154,12 +155,8 @@ export const useStore = create<AppState>((set) => ({
       let updated = false;
 
       for (const [id, stream] of newStreams) {
-        // Match by URL (similar to background script matching)
-        if (
-          stream.info.url === streamUrl ||
-          stream.info.url.includes(streamUrl) ||
-          streamUrl.includes(stream.info.url)
-        ) {
+        // Match by URL using robust matching function
+        if (urlsMatch(stream.info.url, streamUrl)) {
           newStreams.set(id, {
             ...stream,
             info: {
@@ -185,11 +182,8 @@ export const useStore = create<AppState>((set) => ({
 
       for (const updatedInfo of updatedStreams) {
         for (const [id, stream] of newStreams) {
-          if (
-            stream.info.url === updatedInfo.url ||
-            stream.info.url.includes(updatedInfo.url) ||
-            updatedInfo.url.includes(stream.info.url)
-          ) {
+          // Match by URL using robust matching function
+          if (urlsMatch(stream.info.url, updatedInfo.url)) {
             newStreams.set(id, {
               ...stream,
               info: {

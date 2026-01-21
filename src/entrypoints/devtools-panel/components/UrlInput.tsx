@@ -199,8 +199,8 @@ export function UrlInput({ onStreamLoaded }: Props) {
       const audioCount = parsedManifest.audioVariants?.length || 0;
       showToast('success', `Loaded: ${variantCount} video, ${audioCount} audio tracks`);
 
-      // Switch to Manifest tab to show results
-      setActiveTab('manifest');
+      // Switch to Streams tab to show results
+      setActiveTab('streams');
 
       // Clear input
       setUrl('');

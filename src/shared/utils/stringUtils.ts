@@ -162,3 +162,101 @@ export function cleanPageTitle(pageTitle: string | undefined): string {
 
   return cleaned.trim();
 }
+
+/**
+ * Normalize URL for comparison by extracting the key identifying parts
+ * Handles blob: URLs by returning empty string (can't be matched)
+ * @param url - The URL to normalize
+ * @returns Normalized URL path without query string, or empty string for non-matchable URLs
+ */
+export function normalizeUrlForMatching(url: string): string {
+  if (!url) return '';
+
+  // blob: URLs can't be matched to manifest URLs
+  if (url.startsWith('blob:')) return '';
+
+  try {
+    const urlObj = new URL(url);
+    // Return host + pathname (without query string)
+    // This helps match URLs that differ only in query params (tokens, etc.)
+    return `${urlObj.host}${urlObj.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Check if two stream URLs match (considering partial matches)
+ * Handles cases where one URL might be a subset of another (e.g., master vs variant manifests)
+ * @param url1 - First URL to compare
+ * @param url2 - Second URL to compare
+ * @returns True if URLs match
+ */
+export function urlsMatch(url1: string, url2: string): boolean {
+  if (!url1 || !url2) return false;
+
+  // Exact match
+  if (url1 === url2) return true;
+
+  // Skip blob: URLs - they can't be matched
+  if (url1.startsWith('blob:') || url2.startsWith('blob:')) return false;
+
+  // Normalize both URLs
+  const norm1 = normalizeUrlForMatching(url1);
+  const norm2 = normalizeUrlForMatching(url2);
+
+  if (!norm1 || !norm2) return false;
+
+  // Exact normalized match
+  if (norm1 === norm2) return true;
+
+  // Extract filenames for comparison
+  const file1 = getFilenameFromUrl(url1);
+  const file2 = getFilenameFromUrl(url2);
+
+  // Check if both URLs point to manifest files with same name
+  if (file1 && file2 && file1 === file2) {
+    // Check if they're from the same host
+    try {
+      const host1 = new URL(url1).host;
+      const host2 = new URL(url2).host;
+      if (host1 === host2) return true;
+    } catch {
+      // Fall through to other checks
+    }
+  }
+
+  // Partial path matching - one URL's path contains the other
+  // This handles master.m3u8 vs index_1/playlist.m3u8 cases
+  try {
+    const path1 = new URL(url1).pathname;
+    const path2 = new URL(url2).pathname;
+
+    // Get the base directory (without the filename)
+    const baseDir1 = path1.substring(0, path1.lastIndexOf('/') + 1);
+    const baseDir2 = path2.substring(0, path2.lastIndexOf('/') + 1);
+
+    // If one URL's directory is a prefix of the other, they might be related
+    if (baseDir1 && baseDir2 && (baseDir1.startsWith(baseDir2) || baseDir2.startsWith(baseDir1))) {
+      // Check same host
+      const host1 = new URL(url1).host;
+      const host2 = new URL(url2).host;
+      if (host1 === host2) return true;
+    }
+  } catch {
+    // Fall through
+  }
+
+  // Legacy fallback: simple includes check (for backwards compatibility)
+  // But only if both are HTTP(S) URLs and share significant portions
+  if (url1.includes(url2) || url2.includes(url1)) {
+    // Only accept if the overlap is significant (at least 30 chars or 50% of the shorter URL)
+    const shorter = url1.length < url2.length ? url1 : url2;
+    const longer = url1.length < url2.length ? url2 : url1;
+    if (shorter.length >= 30 || shorter.length >= longer.length * 0.5) {
+      return true;
+    }
+  }
+
+  return false;
+}

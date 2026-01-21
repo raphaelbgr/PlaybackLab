@@ -13,12 +13,13 @@ import { useStore } from '../../../store';
 import { formatDistanceToNow } from 'date-fns';
 import { safeUpperCase, typeToClassName, formatBitrate, formatDuration, getFilenameFromUrl } from '../../../shared/utils/stringUtils';
 import { copyToClipboard, generateCurlCommand } from '../../../shared/utils/copyAsCurl';
+import { ErrorDisplay } from './ErrorDisplay';
 
 interface StreamDetailsProps {
   stream: DetectedStream | null;
 }
 
-type DetailTab = 'overview' | 'manifest' | 'payload' | 'metrics' | 'drm';
+type DetailTab = 'overview' | 'manifest' | 'payload' | 'metrics' | 'drm' | 'errors';
 
 // Hash function for URL-based storage keys
 function hashUrl(url: string): string {
@@ -172,6 +173,12 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
         >
           DRM
         </button>
+        <button
+          className={`details-tab ${activeTab === 'errors' ? 'active' : ''} ${stream.error ? 'has-error' : ''}`}
+          onClick={() => handleTabChange('errors')}
+        >
+          Errors {stream.error && <span className="error-indicator">!</span>}
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -195,6 +202,7 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
         {activeTab === 'payload' && <PayloadTab stream={stream} />}
         {activeTab === 'metrics' && <MetricsTab stream={stream} />}
         {activeTab === 'drm' && <DrmTab stream={stream} />}
+        {activeTab === 'errors' && <ErrorsTab stream={stream} />}
       </div>
     </div>
   );
@@ -222,12 +230,12 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
           if (info.type === 'hls') {
             const { HlsManifestParser } = await import('../../../core/services/HlsManifestParser');
             const parser = new HlsManifestParser();
-            const parsed = parser.parse(text, info.url);
+            const parsed = await parser.parse(text, info.url);
             updateManifest(info.id, parsed);
           } else if (info.type === 'dash') {
             const { DashManifestParser } = await import('../../../core/services/DashManifestParser');
             const parser = new DashManifestParser();
-            const parsed = parser.parse(text, info.url);
+            const parsed = await parser.parse(text, info.url);
             updateManifest(info.id, parsed);
           } else {
             setStreamLoading(info.id, false);
@@ -917,10 +925,44 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
   const videoVariants = manifest.videoVariants || [];
   const audioVariants = manifest.audioVariants || [];
   const subtitles = manifest.subtitles || [];
+  const segments = manifest.segments || [];
   const rawManifest = manifest.raw || '';
 
   return (
     <div className="manifest-details">
+      {/* Manifest Summary */}
+      <div className="manifest-section">
+        <h4 className="section-title" title="The manifest is an index file (m3u8/mpd) that tells the player what video/audio files to download">
+          Manifest Info
+        </h4>
+        <div className="manifest-summary">
+          <div className="summary-item" title="HLS (Apple) or DASH (MPEG) streaming format">
+            <span className="summary-label">Format</span>
+            <span className={`summary-value type-badge ${manifest.type}`}>{safeUpperCase(manifest.type)}</span>
+          </div>
+          <div className="summary-item" title="Live = real-time broadcast, VOD = pre-recorded video on demand">
+            <span className="summary-label">Type</span>
+            <span className={`summary-value ${manifest.isLive ? 'live' : ''}`}>
+              {manifest.isLive ? '🔴 Live' : '📼 VOD'}
+            </span>
+          </div>
+          {manifest.duration ? (
+            <div className="summary-item" title="Total video length">
+              <span className="summary-label">Duration</span>
+              <span className="summary-value">{formatDuration(manifest.duration)}</span>
+            </div>
+          ) : null}
+          <div className="summary-item" title="Segments are small video/audio chunks (typically 2-10 seconds each) that make up the stream">
+            <span className="summary-label">Segments</span>
+            <span className="summary-value">{segments.length || '—'}</span>
+          </div>
+          <div className="summary-item" title="Digital Rights Management - content encryption">
+            <span className="summary-label">DRM</span>
+            <span className="summary-value">{manifest.drm?.length ? `${manifest.drm.length} system(s)` : 'None'}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Video Variants */}
       {videoVariants.length > 0 && (
         <div className="manifest-section">
@@ -984,7 +1026,16 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
       {/* Raw Manifest */}
       {rawManifest && (
         <div className="manifest-section">
-          <h4 className="section-title">Raw Manifest</h4>
+          <h4 className="section-title">
+            Raw Manifest
+            <button
+              className="copy-btn"
+              onClick={() => copyToClipboard(rawManifest)}
+              title="Copy raw manifest"
+            >
+              Copy
+            </button>
+          </h4>
           <pre className="raw-manifest">{rawManifest.slice(0, 2000)}{rawManifest.length > 2000 ? '...' : ''}</pre>
         </div>
       )}
@@ -1086,41 +1137,85 @@ function DrmTab({ stream }: { stream: DetectedStream }) {
       <div className="tab-empty">
         <div className="empty-icon">🔓</div>
         <p>No DRM protection detected</p>
+        <p className="hint">
+          This stream appears to be unencrypted.
+          <br />
+          DRM info is extracted from:
+        </p>
+        <ul className="hint-list">
+          <li>HLS: EXT-X-KEY tags with SAMPLE-AES</li>
+          <li>DASH: ContentProtection elements</li>
+        </ul>
       </div>
     );
   }
 
   return (
     <div className="drm-details">
+      <div className="drm-summary">
+        <span className="drm-count">{drm.length} DRM system{drm.length > 1 ? 's' : ''} detected</span>
+      </div>
       {drm.map((drmInfo, i) => (
         <div key={i} className="drm-card">
           <div className="drm-header">
             <span className={`drm-badge ${typeToClassName(drmInfo.type)}`}>
               {safeUpperCase(drmInfo.type)}
             </span>
+            <span className="drm-system-name">
+              {drmInfo.type === 'widevine' && 'Google Widevine'}
+              {drmInfo.type === 'playready' && 'Microsoft PlayReady'}
+              {drmInfo.type === 'fairplay' && 'Apple FairPlay'}
+              {drmInfo.type === 'clearkey' && 'Clear Key'}
+              {drmInfo.type === 'unknown' && 'Unknown System'}
+            </span>
           </div>
           <div className="drm-info">
             {drmInfo.keyId && (
               <div className="drm-field">
                 <span className="field-label">Key ID</span>
-                <code className="field-value">{drmInfo.keyId}</code>
+                <div className="field-value-row">
+                  <code className="field-value">{drmInfo.keyId}</code>
+                  <button className="copy-btn-small" onClick={() => copyToClipboard(drmInfo.keyId!)} title="Copy">
+                    📋
+                  </button>
+                </div>
               </div>
             )}
             {drmInfo.licenseUrl && (
               <div className="drm-field">
                 <span className="field-label">License URL</span>
-                <code className="field-value">{drmInfo.licenseUrl}</code>
+                <div className="field-value-row">
+                  <code className="field-value">{drmInfo.licenseUrl}</code>
+                  <button className="copy-btn-small" onClick={() => copyToClipboard(drmInfo.licenseUrl!)} title="Copy">
+                    📋
+                  </button>
+                </div>
               </div>
             )}
             {drmInfo.pssh && (
               <div className="drm-field">
-                <span className="field-label">PSSH</span>
-                <code className="field-value pssh">{drmInfo.pssh.slice(0, 100)}...</code>
+                <span className="field-label">PSSH (Base64)</span>
+                <div className="field-value-row">
+                  <code className="field-value pssh">{drmInfo.pssh.slice(0, 80)}{drmInfo.pssh.length > 80 ? '...' : ''}</code>
+                  <button className="copy-btn-small" onClick={() => copyToClipboard(drmInfo.pssh!)} title="Copy full PSSH">
+                    📋
+                  </button>
+                </div>
               </div>
             )}
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ErrorsTab({ stream }: { stream: DetectedStream }) {
+  const { error } = stream;
+
+  return (
+    <div className="errors-tab">
+      <ErrorDisplay error={error} showSearch={!error} />
     </div>
   );
 }

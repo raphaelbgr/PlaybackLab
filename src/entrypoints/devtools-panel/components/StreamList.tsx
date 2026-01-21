@@ -38,7 +38,7 @@ export function StreamList() {
 
   const handleInspect = (streamId: string) => {
     selectStream(streamId);
-    setActiveTab('manifest');
+    setActiveTab('streams');
   };
 
   const handleRemove = (streamId: string, e: React.MouseEvent) => {

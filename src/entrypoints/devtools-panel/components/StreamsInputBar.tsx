@@ -291,8 +291,8 @@ export function StreamsInputBar() {
       updateManifest(streamId, parsed);
       showToast('success', `Loaded ${safeUpperCase(parsed.type)} manifest`);
 
-      // Switch to manifest tab
-      setActiveTab('manifest');
+      // Switch to streams tab
+      setActiveTab('streams');
       setUrl('');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load manifest';

@@ -581,11 +581,20 @@ body {
   line-height: 1.6;
 }
 
+/* Scrollable panel - reusable for any panel that needs scroll */
+.scrollable-panel {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* Network Inspector Component */
 .network-inspector {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
 }
 
 .network-header {
@@ -629,7 +638,8 @@ body {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;
-  max-height: 300px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -4487,6 +4497,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 12px;
 }
 
 .manifest-section {
@@ -4496,6 +4507,11 @@ body {
   overflow: hidden;
 }
 
+.manifest-section > .manifest-summary {
+  margin: 0;
+  border-radius: 0;
+}
+
 .section-title {
   font-size: 12px;
   font-weight: 600;
@@ -4503,6 +4519,7 @@ body {
   padding: 10px 12px;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
+  cursor: help;
 }
 
 .variants-table {
@@ -4756,4 +4773,164 @@ body {
   font-size: 11px;
   margin-top: 8px;
   color: var(--text-secondary);
+}
+
+/* Details Tab Error Indicator */
+.details-tab.has-error {
+  color: var(--error);
+}
+
+.details-tab .error-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--error);
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Errors Tab */
+.errors-tab {
+  padding: 12px;
+  overflow: auto;
+}
+
+/* Section Title with Copy Button */
+.manifest-section .section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.manifest-section .section-title .copy-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.manifest-section .section-title .copy-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* Manifest Summary */
+.manifest-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px 24px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: help;
+}
+
+.summary-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.summary-value.live {
+  color: var(--error);
+}
+
+.summary-value.type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.summary-value.type-badge.hls {
+  background: rgba(79, 195, 247, 0.2);
+  color: #4fc3f7;
+}
+
+.summary-value.type-badge.dash {
+  background: rgba(255, 183, 77, 0.2);
+  color: #ffb74d;
+}
+
+/* DRM Tab Enhancements */
+.drm-summary {
+  margin-bottom: 12px;
+}
+
+.drm-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.drm-system-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.field-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-value-row .field-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.copy-btn-small {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  font-size: 12px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.copy-btn-small:hover {
+  opacity: 1;
+}
+
+/* Hint list for empty states */
+.hint-list {
+  list-style: disc;
+  margin: 8px 0 0 20px;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.hint-list li {
+  margin: 4px 0;
+}
+
+/* Errors Tab */
+.errors-tab {
+  padding: 0;
 }
