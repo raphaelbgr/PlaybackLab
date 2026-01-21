@@ -76,13 +76,36 @@ function AppContent() {
       } else if (message.type === 'SELECT_STREAM_IN_PANEL' && message.payload) {
         // User clicked on a video overlay - select the stream
         const { url, streamId } = message.payload as SelectStreamPayload;
+        let selected = false;
+
+        // Try by stream ID first (most reliable)
         if (streamId) {
           selectStream(streamId);
-        } else if (url) {
-          selectStreamByUrl(url);
+          selected = true;
         }
+
+        // Try by URL match
+        if (!selected && url && !url.startsWith('blob:')) {
+          selected = selectStreamByUrl(url);
+        }
+
+        // If still not selected and we have streams, select the first active one or just the first
+        if (!selected) {
+          const state = useStore.getState();
+          const streamsList = Array.from(state.streams.values());
+          if (streamsList.length > 0) {
+            // Prefer an active stream
+            const activeStream = streamsList.find(s => s.info.isActive);
+            const streamToSelect = activeStream || streamsList[0];
+            selectStream(streamToSelect.info.id);
+            selected = true;
+          }
+        }
+
         // Switch to streams tab to show selection
-        setCurrentTab('streams');
+        if (selected) {
+          setCurrentTab('streams');
+        }
       }
     };
 

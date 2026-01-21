@@ -379,32 +379,59 @@ export default defineBackground(() => {
 
       case 'ENABLE_VIDEO_OVERLAYS': {
         const tabId = message.tabId as number;
-        safeGetTab(tabId).then((tab) => {
+        safeGetTab(tabId).then(async (tab) => {
           if (!tab) {
             sendResponse({ success: false, error: 'Tab not found' });
             return;
           }
-          // Send detected streams to content script for matching
-          const streams = tabStreams.get(tabId) || [];
-          const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
 
-          // First update streams cache, then enable overlays
-          chrome.tabs.sendMessage(tabId, {
-            type: 'UPDATE_STREAMS_CACHE',
-            payload: { streams: streamsCache },
-          }, () => {
-            if (chrome.runtime.lastError) {
-              sendResponse({ success: false, error: chrome.runtime.lastError.message });
-              return;
-            }
-            // Now enable overlays
-            chrome.tabs.sendMessage(tabId, { type: 'ENABLE_VIDEO_OVERLAYS' }, (response) => {
+          // Helper to enable overlays after ensuring content script is ready
+          const enableOverlays = () => {
+            // Send detected streams to content script for matching
+            const streams = tabStreams.get(tabId) || [];
+            const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
+
+            // First update streams cache, then enable overlays
+            chrome.tabs.sendMessage(tabId, {
+              type: 'UPDATE_STREAMS_CACHE',
+              payload: { streams: streamsCache },
+            }, () => {
               if (chrome.runtime.lastError) {
                 sendResponse({ success: false, error: chrome.runtime.lastError.message });
-              } else {
-                sendResponse(response || { success: true });
+                return;
               }
+              // Now enable overlays
+              chrome.tabs.sendMessage(tabId, { type: 'ENABLE_VIDEO_OVERLAYS' }, (response) => {
+                if (chrome.runtime.lastError) {
+                  sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                } else {
+                  sendResponse(response || { success: true });
+                }
+              });
             });
+          };
+
+          // Try to ping content script first
+          chrome.tabs.sendMessage(tabId, { type: 'GET_OVERLAY_STATUS' }, async (response) => {
+            if (chrome.runtime.lastError) {
+              // Content script not loaded - inject it
+              console.log('[PlaybackLab] Content script not found, injecting...');
+              try {
+                await chrome.scripting.executeScript({
+                  target: { tabId },
+                  files: ['content-scripts/content.js'],
+                });
+                console.log('[PlaybackLab] Content script injected successfully');
+                // Small delay to let script initialize
+                setTimeout(enableOverlays, 100);
+              } catch (err) {
+                console.error('[PlaybackLab] Failed to inject content script:', err);
+                sendResponse({ success: false, error: 'Failed to inject content script' });
+              }
+            } else {
+              // Content script already loaded
+              enableOverlays();
+            }
           });
         });
         return true;

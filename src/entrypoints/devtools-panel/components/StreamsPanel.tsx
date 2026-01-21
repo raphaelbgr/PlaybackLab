@@ -3,7 +3,7 @@
  * Split panel layout: Stream list on left, details on right
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStore, useStreamsList, useSelectedStream, type DetectedStream } from '../../../store';
 import { StreamsInputBar } from './StreamsInputBar';
 import { StreamDetails } from './StreamDetails';
@@ -141,6 +141,22 @@ export function StreamsPanel() {
   const { showToast } = useToast();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+
+  // Auto-expand group when a stream is selected (e.g., from overlay click)
+  useEffect(() => {
+    if (selectedStreamId && streams.length > 0) {
+      const selectedStreamData = streams.find(s => s.info.id === selectedStreamId);
+      if (selectedStreamData) {
+        const groupKey = getStreamGroupKey(selectedStreamData.info.url);
+        setExpandedGroups(prev => {
+          if (prev.has(groupKey)) return prev;
+          const next = new Set(prev);
+          next.add(groupKey);
+          return next;
+        });
+      }
+    }
+  }, [selectedStreamId, streams]);
 
   // Group streams by hostname + filename
   const streamGroups = useMemo(() => {

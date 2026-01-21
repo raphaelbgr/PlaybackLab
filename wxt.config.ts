@@ -12,6 +12,7 @@ export default defineConfig({
       'storage',
       'tabs',
       'activeTab',
+      'scripting',
     ],
     host_permissions: ['<all_urls>'],
     devtools_page: 'devtools.html',
