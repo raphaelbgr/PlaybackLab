@@ -27,6 +27,95 @@
   padding: 0;
 }
 
+/* Custom Tooltips - Native title doesn't work in DevTools panels */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::before,
+[data-tooltip]::after {
+  position: absolute;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 9999;
+}
+
+/* Tooltip text */
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  max-width: 300px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Tooltip arrow */
+[data-tooltip]::before {
+  content: '';
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #444;
+}
+
+/* Show on hover */
+[data-tooltip]:hover::before,
+[data-tooltip]:hover::after {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Bottom tooltip variant */
+[data-tooltip-position="bottom"]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
+
+[data-tooltip-position="bottom"]::before {
+  bottom: auto;
+  top: calc(100% + 2px);
+  border-top-color: transparent;
+  border-bottom-color: #444;
+}
+
+/* Left tooltip variant */
+[data-tooltip-position="left"]::after {
+  bottom: auto;
+  top: 50%;
+  left: auto;
+  right: calc(100% + 6px);
+  transform: translateY(-50%);
+}
+
+[data-tooltip-position="left"]::before {
+  bottom: auto;
+  top: 50%;
+  left: auto;
+  right: calc(100% + 2px);
+  transform: translateY(-50%);
+  border-top-color: transparent;
+  border-left-color: #444;
+}
+
+/* Multiline tooltip */
+[data-tooltip-wrap]::after {
+  white-space: normal;
+  text-align: left;
+}
+
 html, body {
   margin: 0;
   padding: 0;

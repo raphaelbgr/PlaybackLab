@@ -1109,31 +1109,31 @@ function ManifestTab({ stream }: { stream: DetectedStream }) {
     <div className="manifest-details">
       {/* Manifest Summary */}
       <div className="manifest-section">
-        <h4 className="section-title" title="The manifest is an index file (m3u8/mpd) that tells the player what video/audio files to download">
+        <h4 className="section-title" data-tooltip="The manifest is an index file (m3u8/mpd) that tells the player what video/audio files to download" data-tooltip-wrap="true">
           Manifest Info
         </h4>
         <div className="manifest-summary">
-          <div className="summary-item" title="HLS (Apple) or DASH (MPEG) streaming format">
+          <div className="summary-item" data-tooltip="HLS (Apple) or DASH (MPEG) streaming format">
             <span className="summary-label">Format</span>
             <span className={`summary-value type-badge ${manifest.type}`}>{safeUpperCase(manifest.type)}</span>
           </div>
-          <div className="summary-item" title="Live = real-time broadcast, VOD = pre-recorded video on demand">
+          <div className="summary-item" data-tooltip="Live = real-time broadcast, VOD = pre-recorded video">
             <span className="summary-label">Type</span>
             <span className={`summary-value ${manifest.isLive ? 'live' : ''}`}>
               {manifest.isLive ? '🔴 Live' : '📼 VOD'}
             </span>
           </div>
           {manifest.duration ? (
-            <div className="summary-item" title="Total video length">
+            <div className="summary-item" data-tooltip="Total video length">
               <span className="summary-label">Duration</span>
               <span className="summary-value">{formatDuration(manifest.duration)}</span>
             </div>
           ) : null}
-          <div className="summary-item" title="Segments are small video/audio chunks (typically 2-10 seconds each) that make up the stream">
+          <div className="summary-item" data-tooltip="Small video/audio chunks (2-10 sec each)" data-tooltip-wrap="true">
             <span className="summary-label">Segments</span>
             <span className="summary-value">{segments.length || '—'}</span>
           </div>
-          <div className="summary-item" title="Digital Rights Management - content encryption">
+          <div className="summary-item" data-tooltip="Digital Rights Management - content encryption">
             <span className="summary-label">DRM</span>
             <span className="summary-value">{manifest.drm?.length ? `${manifest.drm.length} system(s)` : 'None'}</span>
           </div>
