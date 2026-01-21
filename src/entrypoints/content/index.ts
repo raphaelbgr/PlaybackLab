@@ -897,18 +897,19 @@ export default defineContentScript({
         hls?: { url?: string };
         shaka?: { getAssetUri?: () => string };
         player?: { getSource?: () => { src: string } | string };
+        dashPlayer?: { getSource?: () => string };
       };
 
       let url = '';
       let type = 'VIDEO';
       let streamId: string | null = null;
 
-      // Check HLS.js
+      // Check HLS.js - most common
       if (videoEl.hls?.url) {
         url = videoEl.hls.url;
         type = 'HLS';
       }
-      // Check Shaka (DASH)
+      // Check Shaka Player (supports both HLS and DASH)
       else if (videoEl.shaka?.getAssetUri) {
         try {
           url = videoEl.shaka.getAssetUri() || '';
@@ -932,10 +933,61 @@ export default defineContentScript({
       }
 
       // Try to match with detected streams cache
-      if (url && detectedStreamsCache.length > 0) {
-        const match = detectedStreamsCache.find((s) => s.url === url);
-        if (match) {
-          streamId = match.id;
+      if (detectedStreamsCache.length > 0) {
+        // Strategy 1: Exact URL match (works when we found the manifest URL)
+        if (url && !url.startsWith('blob:')) {
+          const exactMatch = detectedStreamsCache.find((s) => s.url === url);
+          if (exactMatch) {
+            streamId = exactMatch.id;
+            type = exactMatch.type.toUpperCase();
+            return { type, url, streamId };
+          }
+        }
+
+        // Strategy 2: If we have MSE/blob, check if there's only one stream (common case)
+        if (type === 'MSE' || type === 'VIDEO' || url.startsWith('blob:')) {
+          if (detectedStreamsCache.length === 1) {
+            // Single stream detected - very likely this video is playing it
+            const singleStream = detectedStreamsCache[0];
+            streamId = singleStream.id;
+            type = singleStream.type.toUpperCase();
+            url = singleStream.url;
+            return { type, url, streamId };
+          }
+
+          // Strategy 3: Look for an active/playing stream
+          // This works because the video element we're looking at is likely playing one of the detected streams
+          // For now, prefer HLS/DASH streams over others
+          const hlsStream = detectedStreamsCache.find(s => s.type === 'hls');
+          const dashStream = detectedStreamsCache.find(s => s.type === 'dash');
+          const preferredStream = hlsStream || dashStream;
+
+          if (preferredStream) {
+            streamId = preferredStream.id;
+            type = preferredStream.type.toUpperCase();
+            url = preferredStream.url;
+            return { type, url, streamId };
+          }
+        }
+
+        // Strategy 4: Partial URL match (filename match)
+        if (url && !url.startsWith('blob:')) {
+          try {
+            const urlFilename = new URL(url).pathname.split('/').pop();
+            if (urlFilename) {
+              const filenameMatch = detectedStreamsCache.find((s) => {
+                try {
+                  const cachedFilename = new URL(s.url).pathname.split('/').pop();
+                  return cachedFilename === urlFilename;
+                } catch { return false; }
+              });
+              if (filenameMatch) {
+                streamId = filenameMatch.id;
+                type = filenameMatch.type.toUpperCase();
+                return { type, url, streamId };
+              }
+            }
+          } catch {}
         }
       }
 
