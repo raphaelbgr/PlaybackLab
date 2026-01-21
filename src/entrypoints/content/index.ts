@@ -932,63 +932,68 @@ export default defineContentScript({
         else if (url.startsWith('blob:')) type = 'MSE';
       }
 
-      // Try to match with detected streams cache
-      if (detectedStreamsCache.length > 0) {
-        // Strategy 1: Exact URL match (works when we found the manifest URL)
-        if (url && !url.startsWith('blob:')) {
-          const exactMatch = detectedStreamsCache.find((s) => s.url === url);
-          if (exactMatch) {
-            streamId = exactMatch.id;
-            type = exactMatch.type.toUpperCase();
-            return { type, url, streamId };
-          }
+      // Smart URL matching with fallback levels (conservative approach)
+      // Only match when we're confident to avoid selecting wrong stream
+      if (detectedStreamsCache.length > 0 && url && !url.startsWith('blob:')) {
+        // Level 1: Exact URL match (highest confidence)
+        const exactMatch = detectedStreamsCache.find((s) => s.url === url);
+        if (exactMatch) {
+          streamId = exactMatch.id;
+          type = exactMatch.type.toUpperCase();
+          return { type, url, streamId };
         }
 
-        // Strategy 2: If we have MSE/blob, check if there's only one stream (common case)
-        if (type === 'MSE' || type === 'VIDEO' || url.startsWith('blob:')) {
-          if (detectedStreamsCache.length === 1) {
-            // Single stream detected - very likely this video is playing it
-            const singleStream = detectedStreamsCache[0];
-            streamId = singleStream.id;
-            type = singleStream.type.toUpperCase();
-            url = singleStream.url;
+        // Level 2: URL without query params match (tokens/signatures often differ)
+        try {
+          const urlObj = new URL(url);
+          const urlWithoutParams = `${urlObj.origin}${urlObj.pathname}`;
+          const noParamsMatch = detectedStreamsCache.find((s) => {
+            try {
+              const cachedUrl = new URL(s.url);
+              return `${cachedUrl.origin}${cachedUrl.pathname}` === urlWithoutParams;
+            } catch { return false; }
+          });
+          if (noParamsMatch) {
+            streamId = noParamsMatch.id;
+            type = noParamsMatch.type.toUpperCase();
             return { type, url, streamId };
           }
+        } catch {}
 
-          // Strategy 3: Look for an active/playing stream
-          // This works because the video element we're looking at is likely playing one of the detected streams
-          // For now, prefer HLS/DASH streams over others
-          const hlsStream = detectedStreamsCache.find(s => s.type === 'hls');
-          const dashStream = detectedStreamsCache.find(s => s.type === 'dash');
-          const preferredStream = hlsStream || dashStream;
-
-          if (preferredStream) {
-            streamId = preferredStream.id;
-            type = preferredStream.type.toUpperCase();
-            url = preferredStream.url;
-            return { type, url, streamId };
-          }
-        }
-
-        // Strategy 4: Partial URL match (filename match)
-        if (url && !url.startsWith('blob:')) {
-          try {
-            const urlFilename = new URL(url).pathname.split('/').pop();
-            if (urlFilename) {
-              const filenameMatch = detectedStreamsCache.find((s) => {
-                try {
-                  const cachedFilename = new URL(s.url).pathname.split('/').pop();
-                  return cachedFilename === urlFilename;
-                } catch { return false; }
-              });
-              if (filenameMatch) {
-                streamId = filenameMatch.id;
-                type = filenameMatch.type.toUpperCase();
-                return { type, url, streamId };
-              }
+        // Level 3: Same host + same filename (reasonably confident)
+        try {
+          const urlObj = new URL(url);
+          const urlFilename = urlObj.pathname.split('/').pop();
+          if (urlFilename && (urlFilename.includes('.m3u8') || urlFilename.includes('.mpd'))) {
+            const hostFilenameMatch = detectedStreamsCache.find((s) => {
+              try {
+                const cachedUrl = new URL(s.url);
+                const cachedFilename = cachedUrl.pathname.split('/').pop();
+                return cachedUrl.host === urlObj.host && cachedFilename === urlFilename;
+              } catch { return false; }
+            });
+            if (hostFilenameMatch) {
+              streamId = hostFilenameMatch.id;
+              type = hostFilenameMatch.type.toUpperCase();
+              return { type, url, streamId };
             }
-          } catch {}
+          }
+        } catch {}
+      }
+
+      // For blob:/MSE videos - only match if we're confident
+      if ((type === 'MSE' || type === 'VIDEO' || url.startsWith('blob:')) && detectedStreamsCache.length > 0) {
+        // Only auto-match if there's exactly one stream (very high confidence)
+        if (detectedStreamsCache.length === 1) {
+          const singleStream = detectedStreamsCache[0];
+          streamId = singleStream.id;
+          type = singleStream.type.toUpperCase();
+          url = singleStream.url;
+          return { type, url, streamId };
         }
+
+        // If multiple streams, don't guess - show as MSE/VIDEO and let user select
+        // This prevents selecting the wrong stream
       }
 
       return { type, url, streamId };
