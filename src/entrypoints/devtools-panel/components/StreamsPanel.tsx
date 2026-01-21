@@ -14,20 +14,30 @@ import { safeUpperCase, typeToClassName, formatBitrateShort, getFilenameFromUrl,
 import type { PlaybackState } from '../../../core/interfaces/IStreamDetector';
 
 // Playback Status Indicator Component
-function PlaybackStatusIndicator({ state, isActive }: { state?: PlaybackState; isActive?: boolean }) {
+function PlaybackStatusIndicator({ state, isActive, showLabel = false }: { state?: PlaybackState; isActive?: boolean; showLabel?: boolean }) {
   // Determine the effective state
   const effectiveState = state || (isActive ? 'playing' : 'idle');
 
   const statusConfig: Record<PlaybackState, { icon: string; label: string; className: string }> = {
-    playing: { icon: '▶', label: 'Playing', className: 'playing' },
-    paused: { icon: '⏸', label: 'Paused', className: 'paused' },
-    buffering: { icon: '◐', label: 'Buffering', className: 'buffering' },
-    stalled: { icon: '⚠', label: 'Stalled', className: 'stalled' },
-    ended: { icon: '⏹', label: 'Ended', className: 'ended' },
-    idle: { icon: '○', label: 'Idle', className: 'idle' },
+    playing: { icon: '▶', label: 'PLAYING', className: 'playing' },
+    paused: { icon: '⏸', label: 'PAUSED', className: 'paused' },
+    buffering: { icon: '◐', label: 'BUFFERING', className: 'buffering' },
+    stalled: { icon: '⚠', label: 'STALLED', className: 'stalled' },
+    ended: { icon: '⏹', label: 'ENDED', className: 'ended' },
+    idle: { icon: '○', label: '', className: 'idle' },
   };
 
   const config = statusConfig[effectiveState];
+
+  // Show label badge for active states
+  if (showLabel && effectiveState !== 'idle') {
+    return (
+      <span className={`playback-status-badge ${config.className}`} title={config.label}>
+        <span className="playback-icon">{config.icon}</span>
+        <span className="playback-label">{config.label}</span>
+      </span>
+    );
+  }
 
   return (
     <span className={`playback-status ${config.className}`} title={config.label}>
@@ -145,6 +155,18 @@ export function StreamsPanel() {
           });
         }
       }
+    }
+
+    // Sort streams within each group: playing first, then by most recent detection
+    for (const group of groups.values()) {
+      group.streams.sort((a, b) => {
+        // Playing streams first
+        const aPlaying = a.info.playbackState === 'playing' ? 1 : 0;
+        const bPlaying = b.info.playbackState === 'playing' ? 1 : 0;
+        if (aPlaying !== bPlaying) return bPlaying - aPlaying;
+        // Then by detection time (most recent first)
+        return b.info.detectedAt - a.info.detectedAt;
+      });
     }
 
     // Sort groups: playing first, then active, then by most recent detection
@@ -316,8 +338,12 @@ function StreamGroupCard({
           {safeUpperCase(firstStream.info.type)}
         </span>
 
-        {/* Playback Status Indicator */}
-        <PlaybackStatusIndicator state={group.primaryPlaybackState} isActive={group.hasActive} />
+        {/* Playback Status Badge with Label for active streams */}
+        <PlaybackStatusIndicator
+          state={group.primaryPlaybackState}
+          isActive={group.hasActive}
+          showLabel={isGroupPlaying || isGroupBuffering}
+        />
 
         {/* Audio Indicator for group */}
         <AudioIndicator
@@ -435,8 +461,12 @@ function ExpandableStreamCard({
           {safeUpperCase(info.type)}
         </span>
 
-        {/* Playback Status Indicator */}
-        <PlaybackStatusIndicator state={info.playbackState} isActive={info.isActive} />
+        {/* Playback Status Badge with Label for active streams */}
+        <PlaybackStatusIndicator
+          state={info.playbackState}
+          isActive={info.isActive}
+          showLabel={isPlaying || isBuffering}
+        />
 
         {/* Audio Indicator */}
         <AudioIndicator
