@@ -8,8 +8,16 @@ import type { StreamInfo, PlaybackState } from '../../core/interfaces/IStreamDet
 import type { ParsedManifest } from '../../core/interfaces/IManifestParser';
 import { safeGetTab } from '../../shared/utils/chromeApiSafe';
 import { urlsMatch } from '../../shared/utils/stringUtils';
-import { HlsManifestParser } from '../../core/services/HlsManifestParser';
-import { DashManifestParser } from '../../core/services/DashManifestParser';
+
+// Dynamic parser loading to avoid bundling issues
+const getHlsParser = async () => {
+  const { HlsManifestParser } = await import('../../core/services/HlsManifestParser');
+  return new HlsManifestParser();
+};
+const getDashParser = async () => {
+  const { DashManifestParser } = await import('../../core/services/DashManifestParser');
+  return new DashManifestParser();
+};
 
 interface VideoPlaybackInfo {
   src: string;
@@ -684,12 +692,12 @@ export default defineBackground(() => {
       let manifest: ParsedManifest | null = null;
 
       if (stream.type === 'hls') {
-        const parser = new HlsManifestParser();
+        const parser = await getHlsParser();
         if (parser.supports(content, stream.url)) {
           manifest = await parser.parse(content, stream.url);
         }
       } else if (stream.type === 'dash') {
-        const parser = new DashManifestParser();
+        const parser = await getDashParser();
         if (parser.supports(content, stream.url)) {
           manifest = await parser.parse(content, stream.url);
         }

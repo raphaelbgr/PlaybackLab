@@ -5,10 +5,18 @@
 
 import { useEffect, useState } from 'react';
 import { useStore, type DetectedStream } from '../../../store';
-import { hlsParser } from '../../../core/services/HlsManifestParser';
-import { dashParser } from '../../../core/services/DashManifestParser';
 import type { ParsedManifest } from '../../../core/interfaces/IManifestParser';
 import { safeUpperCase, formatBitrate, formatDuration } from '../../../shared/utils/stringUtils';
+
+// Dynamic parser loading to avoid bundling issues
+const getHlsParser = async () => {
+  const { hlsParser } = await import('../../../core/services/HlsManifestParser');
+  return hlsParser;
+};
+const getDashParser = async () => {
+  const { dashParser } = await import('../../../core/services/DashManifestParser');
+  return dashParser;
+};
 
 interface Props {
   stream: DetectedStream | null;
@@ -35,7 +43,7 @@ export function ManifestViewer({ stream }: Props) {
         }
 
         const content = response.content;
-        const parser = stream.info.type === 'hls' ? hlsParser : dashParser;
+        const parser = stream.info.type === 'hls' ? await getHlsParser() : await getDashParser();
 
         if (!parser.supports(content, stream.info.url)) {
           throw new Error('Unsupported manifest format');

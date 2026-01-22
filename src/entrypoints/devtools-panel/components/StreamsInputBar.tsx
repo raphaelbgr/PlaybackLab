@@ -6,10 +6,18 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../../../store';
 import { useToast } from './Toast';
-import { hlsParser } from '../../../core/services/HlsManifestParser';
-import { dashParser } from '../../../core/services/DashManifestParser';
 import type { StreamInfo } from '../../../core/interfaces/IStreamDetector';
 import { safeUpperCase } from '../../../shared/utils/stringUtils';
+
+// Dynamic parser loading to avoid bundling issues
+const getHlsParser = async () => {
+  const { hlsParser } = await import('../../../core/services/HlsManifestParser');
+  return hlsParser;
+};
+const getDashParser = async () => {
+  const { dashParser } = await import('../../../core/services/DashManifestParser');
+  return dashParser;
+};
 
 export function StreamsInputBar() {
   const [url, setUrl] = useState('');
@@ -97,8 +105,10 @@ export function StreamsInputBar() {
               const content = manifestResponse.content;
               let parsed;
               if (scanned.type === 'hls' || content.includes('#EXTM3U')) {
+                const hlsParser = await getHlsParser();
                 parsed = await hlsParser.parse(content, scanned.url);
               } else if (scanned.type === 'dash' || content.includes('<MPD')) {
+                const dashParser = await getDashParser();
                 parsed = await dashParser.parse(content, scanned.url);
               }
               if (parsed) {
@@ -197,8 +207,10 @@ export function StreamsInputBar() {
             const content = manifestResponse.content;
             let parsed;
             if (scanned.type === 'hls' || content.includes('#EXTM3U')) {
+              const hlsParser = await getHlsParser();
               parsed = await hlsParser.parse(content, scanned.url);
             } else if (scanned.type === 'dash' || content.includes('<MPD')) {
+              const dashParser = await getDashParser();
               parsed = await dashParser.parse(content, scanned.url);
             }
             if (parsed) {
@@ -280,8 +292,10 @@ export function StreamsInputBar() {
       // Parse based on type
       let parsed;
       if (streamType === 'hls' || content.includes('#EXTM3U')) {
+        const hlsParser = await getHlsParser();
         parsed = await hlsParser.parse(content, trimmedUrl);
       } else if (streamType === 'dash' || content.includes('<MPD')) {
+        const dashParser = await getDashParser();
         parsed = await dashParser.parse(content, trimmedUrl);
       } else {
         throw new Error('Unable to detect stream type from content');

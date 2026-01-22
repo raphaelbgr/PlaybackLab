@@ -23,6 +23,7 @@ import {
 } from '../../../shared/utils/videoTags';
 import { ErrorDisplay } from './ErrorDisplay';
 import { CopyButton } from './CopyButton';
+import { MiniPlayer } from './MiniPlayer';
 import type { VideoVariant, ParsedManifest } from '../../../core/interfaces/IManifestParser';
 
 interface StreamDetailsProps {
@@ -350,8 +351,21 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
     },
   ];
 
+  // Check if stream has DRM
+  const hasDrm = (manifest?.drm?.length ?? 0) > 0;
+
   return (
     <div className="overview-content">
+      {/* Mini Player Preview */}
+      <div className="overview-section">
+        <MiniPlayer
+          url={info.url}
+          type={info.type === 'unknown' ? undefined : info.type}
+          hasDrm={hasDrm}
+          requestHeaders={info.requestHeaders}
+        />
+      </div>
+
       {/* Basic Info Section */}
       <div className="overview-section">
         <h4 className="section-title">Stream Info</h4>

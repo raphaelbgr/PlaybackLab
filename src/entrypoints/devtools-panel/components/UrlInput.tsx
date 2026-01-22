@@ -5,10 +5,18 @@
 
 import { useState, useCallback } from 'react';
 import { useStore } from '../../../store';
-import { hlsParser } from '../../../core/services/HlsManifestParser';
-import { dashParser } from '../../../core/services/DashManifestParser';
 import { useToast } from './Toast';
 import type { StreamInfo } from '../../../core/interfaces/IStreamDetector';
+
+// Dynamic parser loading to avoid bundling issues
+const getHlsParser = async () => {
+  const { hlsParser } = await import('../../../core/services/HlsManifestParser');
+  return hlsParser;
+};
+const getDashParser = async () => {
+  const { dashParser } = await import('../../../core/services/DashManifestParser');
+  return dashParser;
+};
 
 interface UrlParam {
   key: string;
@@ -183,11 +191,13 @@ export function UrlInput({ onStreamLoaded }: Props) {
         if (!content.includes('#EXTM3U')) {
           throw new Error('Invalid HLS manifest - missing #EXTM3U header');
         }
+        const hlsParser = await getHlsParser();
         parsedManifest = await hlsParser.parse(content, finalUrl);
       } else {
         if (!content.includes('<MPD')) {
           throw new Error('Invalid DASH manifest - missing MPD element');
         }
+        const dashParser = await getDashParser();
         parsedManifest = await dashParser.parse(content, finalUrl);
       }
 
