@@ -5,6 +5,7 @@
 
 export interface VideoVariant {
   bandwidth: number;
+  averageBandwidth?: number;  // More accurate than peak bandwidth
   width?: number;
   height?: number;
   codecs?: string;
@@ -52,6 +53,12 @@ export interface ParsedManifest {
   drm: DrmInfo[];
   segments: SegmentInfo[];
   raw: string;
+  /**
+   * Manifest classification:
+   * - 'master': Contains video variants (EXT-X-STREAM-INF with resolution/codecs)
+   * - 'media': Contains segments only (media playlist / segment playlist)
+   */
+  playlistType: 'master' | 'media';
 }
 
 export interface SegmentInfo {

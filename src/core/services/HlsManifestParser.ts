@@ -1,10 +1,12 @@
 /**
  * HlsManifestParser - Implements IManifestParser for HLS
+ * Uses hls-parser library for robust manifest parsing
  * SOLID: Single Responsibility - Only parses HLS manifests
  * SOLID: Open/Closed - Can be extended, doesn't need modification
  */
 
-import { Parser } from 'm3u8-parser';
+import * as HLS from 'hls-parser';
+import type { MasterPlaylist, MediaPlaylist, Variant, Rendition, Segment } from 'hls-parser/types';
 import type {
   IManifestParser,
   ParsedManifest,
@@ -25,56 +27,69 @@ export class HlsManifestParser implements IManifestParser {
   }
 
   async parse(content: string, baseUrl: string): Promise<ParsedManifest> {
-    const parser = new Parser();
-    parser.push(content);
-    parser.end();
-
-    const manifest = parser.manifest;
+    const playlist = HLS.parse(content);
     const baseUrlObj = new URL(baseUrl);
 
-    const resolveUrl = (uri: string): string => {
+    const resolveUrl = (uri: string | undefined): string => {
+      if (!uri) return '';
       if (uri.startsWith('http://') || uri.startsWith('https://')) {
         return uri;
       }
       return new URL(uri, baseUrlObj).toString();
     };
 
-    // Extract video variants
-    const videoVariants: VideoVariant[] = (manifest.playlists || []).map((playlist: any) => ({
-      bandwidth: playlist.attributes?.BANDWIDTH || 0,
-      width: playlist.attributes?.RESOLUTION?.width,
-      height: playlist.attributes?.RESOLUTION?.height,
-      codecs: playlist.attributes?.CODECS,
-      url: resolveUrl(playlist.uri),
-      frameRate: playlist.attributes?.['FRAME-RATE'],
+    if (playlist.isMasterPlaylist) {
+      return this.parseMasterPlaylist(playlist as MasterPlaylist, resolveUrl, content);
+    } else {
+      return this.parseMediaPlaylist(playlist as MediaPlaylist, resolveUrl, content);
+    }
+  }
+
+  private parseMasterPlaylist(
+    playlist: MasterPlaylist,
+    resolveUrl: (uri: string | undefined) => string,
+    rawContent: string
+  ): ParsedManifest {
+    // Extract video variants from master playlist
+    const videoVariants: VideoVariant[] = (playlist.variants || []).map((variant: Variant) => ({
+      bandwidth: variant.bandwidth,
+      width: variant.resolution?.width,
+      height: variant.resolution?.height,
+      codecs: variant.codecs,
+      url: resolveUrl(variant.uri),
+      frameRate: variant.frameRate,
+      // Additional fields available from hls-parser
+      averageBandwidth: variant.averageBandwidth,
     }));
 
-    // Extract audio variants
+    // Extract audio variants from renditions
     const audioVariants: AudioVariant[] = [];
-    const audioGroups = manifest.mediaGroups?.AUDIO || {};
-    for (const groupId in audioGroups) {
-      for (const name in audioGroups[groupId]) {
-        const audio = audioGroups[groupId][name] as any;
-        // Include both muxed (no URI) and separate (has URI) audio tracks
+    const seenAudioUrls = new Set<string>();
+
+    for (const variant of playlist.variants || []) {
+      for (const audio of variant.audio || []) {
+        const url = resolveUrl(audio.uri);
+        // Dedupe by URL (same audio track referenced by multiple variants)
+        if (url && seenAudioUrls.has(url)) continue;
+        if (url) seenAudioUrls.add(url);
+
         const isMuxed = !audio.uri;
         audioVariants.push({
           language: audio.language,
-          name: audio.name || name,
-          codecs: audio.attributes?.CODECS || audio.codecs,
-          url: audio.uri ? resolveUrl(audio.uri) : '',
-          channels: audio.channels ? parseInt(audio.channels, 10) : undefined,
-          // Enhanced fields
+          name: audio.name,
+          codecs: audio.codecs,
+          url,
+          channels: audio.channels ? parseInt(String(audio.channels), 10) : undefined,
           isMuxed,
-          isDefault: audio.default === true || audio.default === 'YES',
-          autoSelect: audio.autoselect === true || audio.autoselect === 'YES',
-          groupId,
+          isDefault: audio.isDefault,
+          autoSelect: audio.autoselect,
+          groupId: audio.groupId,
           characteristics: audio.characteristics,
         });
       }
     }
 
-    // If no audio groups found but we have video variants, check if audio might be muxed
-    // by looking at video variant codecs (if they include audio codec like mp4a)
+    // If no audio renditions but video has audio codec, add muxed audio entry
     if (audioVariants.length === 0 && videoVariants.length > 0) {
       const hasAudioCodec = videoVariants.some(v =>
         v.codecs?.includes('mp4a') || v.codecs?.includes('ac-3') || v.codecs?.includes('ec-3')
@@ -85,90 +100,141 @@ export class HlsManifestParser implements IManifestParser {
           url: '',
           isMuxed: true,
           isDefault: true,
-          channels: 2, // Assume stereo for muxed
+          channels: 2,
         });
       }
     }
 
-    // Extract subtitles
+    // Extract subtitles from renditions
     const subtitles: SubtitleTrack[] = [];
-    const subtitleGroups = manifest.mediaGroups?.SUBTITLES || {};
-    for (const groupId in subtitleGroups) {
-      for (const name in subtitleGroups[groupId]) {
-        const sub = subtitleGroups[groupId][name];
-        if (sub.uri) {
-          subtitles.push({
-            language: sub.language,
-            name: sub.name || name,
-            url: resolveUrl(sub.uri),
-            forced: sub.forced === 'YES',
-          });
-        }
+    const seenSubUrls = new Set<string>();
+
+    for (const variant of playlist.variants || []) {
+      for (const sub of variant.subtitles || []) {
+        const url = resolveUrl(sub.uri);
+        if (url && seenSubUrls.has(url)) continue;
+        if (url) seenSubUrls.add(url);
+
+        subtitles.push({
+          language: sub.language,
+          name: sub.name,
+          url,
+          forced: sub.forced,
+        });
       }
     }
 
-    // Extract DRM info
-    const drm: DrmInfo[] = this.extractDrmInfo(manifest);
+    // Extract closed captions info (stored in DRM for now as metadata)
+    // We could add a separate closedCaptions field to ParsedManifest
+    const drm: DrmInfo[] = [];
 
-    // Extract segments (if media playlist)
-    const segments: SegmentInfo[] = (manifest.segments || []).map((seg: any, index: number) => ({
-      url: resolveUrl(seg.uri),
-      duration: seg.duration,
-      startTime: seg.start || 0,
-      index,
-      byteRange: seg.byterange
-        ? { start: seg.byterange.offset, end: seg.byterange.offset + seg.byterange.length - 1 }
-        : undefined,
-    }));
+    // Check for closed captions (they don't have URLs, just INSTREAM-ID)
+    const hasClosedCaptions = (playlist.variants || []).some(v =>
+      (v.closedCaptions || []).length > 0
+    );
 
-    // Determine if stream is live or VOD
-    // VOD indicators: #EXT-X-ENDLIST present, or #EXT-X-PLAYLIST-TYPE:VOD in raw content
-    // Live indicators: no endList AND no VOD playlist type
-    const hasEndList = manifest.endList === true;
-    // m3u8-parser doesn't expose playlistType directly, so check raw content
-    const isPlaylistTypeVod = content.includes('#EXT-X-PLAYLIST-TYPE:VOD');
-    const totalDuration = manifest.segments?.reduce((acc: number, s: any) => acc + (s.duration || 0), 0);
+    return {
+      type: 'hls',
+      duration: undefined, // Master playlists don't have duration
+      isLive: false, // Master playlists can't determine VOD/LIVE
+      videoVariants,
+      audioVariants,
+      subtitles,
+      drm,
+      segments: [], // Master playlists don't have segments
+      raw: rawContent,
+      playlistType: 'master',
+    };
+  }
 
-    // It's VOD if:
-    // 1. Has #EXT-X-ENDLIST tag, OR
-    // 2. Has #EXT-X-PLAYLIST-TYPE:VOD
-    // It's Live if none of these conditions are met
-    const isLive = !hasEndList && !isPlaylistTypeVod;
+  private parseMediaPlaylist(
+    playlist: MediaPlaylist,
+    resolveUrl: (uri: string | undefined) => string,
+    rawContent: string
+  ): ParsedManifest {
+    // Extract segments
+    const segments: SegmentInfo[] = [];
+    let currentTime = 0;
+
+    for (let i = 0; i < (playlist.segments || []).length; i++) {
+      const seg = playlist.segments[i];
+      segments.push({
+        url: resolveUrl(seg.uri),
+        duration: seg.duration,
+        startTime: currentTime,
+        index: i,
+        byteRange: seg.byterange
+          ? { start: seg.byterange.offset || 0, end: (seg.byterange.offset || 0) + seg.byterange.length - 1 }
+          : undefined,
+      });
+      currentTime += seg.duration;
+    }
+
+    // Calculate total duration
+    const totalDuration = segments.reduce((acc, seg) => acc + seg.duration, 0);
+
+    // Determine VOD/LIVE status
+    // - playlistType === 'VOD' means VOD
+    // - playlistType === 'EVENT' means live with DVR
+    // - endlist === true means VOD (finished stream)
+    // - No endlist and has segments = LIVE
+    let isLive = false;
+
+    if (playlist.playlistType === 'VOD' || playlist.endlist) {
+      isLive = false;
+    } else if (playlist.playlistType === 'EVENT' || segments.length > 0) {
+      isLive = true;
+    }
+
+    // Extract DRM info from segments
+    const drm = this.extractDrmInfo(playlist.segments || []);
 
     return {
       type: 'hls',
       duration: totalDuration,
       isLive,
-      videoVariants,
-      audioVariants,
-      subtitles,
+      videoVariants: [], // Media playlists don't have variants
+      audioVariants: [],
+      subtitles: [],
       drm,
       segments,
-      raw: content,
+      raw: rawContent,
+      playlistType: 'media',
     };
   }
 
-  private extractDrmInfo(manifest: any): DrmInfo[] {
+  private extractDrmInfo(segments: Segment[]): DrmInfo[] {
     const drm: DrmInfo[] = [];
+    const seenTypes = new Set<string>();
 
-    // Check for EXT-X-KEY tags
-    const segments = manifest.segments || [];
     for (const segment of segments) {
       if (segment.key) {
-        const keyMethod = segment.key.method;
-        if (keyMethod === 'SAMPLE-AES' || keyMethod === 'SAMPLE-AES-CTR') {
-          // Check for Widevine/FairPlay
-          if (segment.key.keyformat?.includes('urn:uuid:edef8ba9')) {
+        const key = segment.key;
+        const method = key.method;
+
+        if (method === 'SAMPLE-AES' || method === 'SAMPLE-AES-CTR') {
+          // Check for Widevine
+          if (key.keyFormat?.includes('urn:uuid:edef8ba9') && !seenTypes.has('widevine')) {
+            seenTypes.add('widevine');
             drm.push({
               type: 'widevine',
-              licenseUrl: segment.key.uri,
-            });
-          } else if (segment.key.keyformat?.includes('com.apple.streamingkeydelivery')) {
-            drm.push({
-              type: 'fairplay',
-              licenseUrl: segment.key.uri,
+              licenseUrl: key.uri,
             });
           }
+          // Check for FairPlay
+          else if (key.keyFormat?.includes('com.apple.streamingkeydelivery') && !seenTypes.has('fairplay')) {
+            seenTypes.add('fairplay');
+            drm.push({
+              type: 'fairplay',
+              licenseUrl: key.uri,
+            });
+          }
+        } else if (method === 'AES-128' && !seenTypes.has('clearkey')) {
+          seenTypes.add('clearkey');
+          drm.push({
+            type: 'clearkey',
+            licenseUrl: key.uri,
+          });
         }
       }
     }

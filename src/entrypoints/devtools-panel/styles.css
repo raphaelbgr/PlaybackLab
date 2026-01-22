@@ -3121,6 +3121,58 @@ body {
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
+/* Content type badges (VIDEO, SEGMENTS) */
+.content-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.content-badge.video {
+  background: linear-gradient(135deg, rgba(102, 187, 106, 0.25), rgba(76, 175, 80, 0.25));
+  color: #7cd77f;
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  box-shadow: 0 0 4px rgba(76, 175, 80, 0.2);
+}
+
+.content-badge.segments {
+  background: rgba(158, 158, 158, 0.15);
+  color: var(--text-secondary);
+  border: 1px solid rgba(158, 158, 158, 0.3);
+}
+
+/* Mini variant for substream list items */
+.content-badge.mini {
+  padding: 1px 4px;
+  font-size: 8px;
+  letter-spacing: 0.3px;
+}
+
+.content-badge.video.mini {
+  background: rgba(76, 175, 80, 0.2);
+  box-shadow: none;
+}
+
+.content-badge.segments.mini {
+  background: rgba(158, 158, 158, 0.12);
+}
+
+/* Video stream cards get subtle highlight */
+.stream-card.video-stream {
+  border-left: 3px solid rgba(76, 175, 80, 0.6);
+}
+
+.stream-card.video-stream:hover {
+  border-left-color: rgba(76, 175, 80, 0.9);
+}
+
+.stream-card.video-stream.selected {
+  border-left-color: #4caf50;
+}
+
 .stream-filename {
   flex: 1;
   font-size: 13px;
@@ -4098,6 +4150,35 @@ body {
   color: var(--text-primary);
 }
 
+.variant-chip.with-copy,
+.audio-chip.with-copy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+}
+
+.variant-chip .variant-info,
+.audio-chip .audio-info {
+  flex: 1;
+}
+
+.variant-copy-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: 10px;
+  opacity: 0.5;
+  border-radius: 2px;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.variant-copy-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+}
+
 .variant-chip.more {
   color: var(--text-muted);
   font-style: italic;
@@ -4493,25 +4574,32 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px;
+  padding: 12px 14px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 6px;
+  min-width: 0; /* Allow flex item to shrink below content size */
 }
 
 .stat-icon {
   font-size: 20px;
   opacity: 0.8;
+  flex-shrink: 0;
 }
 
 .stat-info {
   flex: 1;
+  min-width: 0; /* Allow content to shrink */
+  overflow: hidden;
 }
 
 .stat-value {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stat-label {

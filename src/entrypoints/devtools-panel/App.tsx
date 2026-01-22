@@ -91,6 +91,10 @@ function AppContent() {
         const state = useStore.getState();
         const streamsList = Array.from(state.streams.values());
 
+        // Helper: check if a stream has video variants (master playlist)
+        const hasVideoVariants = (s: typeof streamsList[0]) =>
+          (s.manifest?.videoVariants?.length ?? 0) > 0;
+
         // Try by stream ID first (most reliable)
         if (streamId && state.streams.has(streamId)) {
           selectStream(streamId);
@@ -106,17 +110,28 @@ function AppContent() {
           }
         }
 
-        // If still not selected, only auto-select if there's exactly one stream
+        // If still not selected, try to find a video stream (master playlist with variants)
         if (!selected) {
+          // Filter to only video streams
+          const videoStreams = streamsList.filter(hasVideoVariants);
+
           if (streamsList.length === 0) {
             showToast('warning', 'No streams detected. Enable auto-detection and refresh the page.');
+          } else if (videoStreams.length === 1) {
+            // Exactly one video stream - select it
+            selectStream(videoStreams[0].info.id);
+            selected = true;
+          } else if (videoStreams.length > 1) {
+            // Multiple video streams - let user choose
+            showToast('info', 'Multiple video streams detected. Please select the correct one from the list.');
+            setCurrentTab('streams');
           } else if (streamsList.length === 1) {
-            // Only one stream - safe to select it
+            // Only one stream (non-video) - select it
             selectStream(streamsList[0].info.id);
             selected = true;
           } else {
-            // Multiple streams - don't auto-select wrong one, let user choose
-            showToast('info', 'Multiple streams detected. Please select the correct one from the list.');
+            // Multiple non-video streams
+            showToast('info', 'Multiple streams detected. Please select one from the list.');
             setCurrentTab('streams');
           }
         }
@@ -165,16 +180,13 @@ function AppContent() {
 
     if (newState) {
       chrome.runtime.sendMessage({ type: 'ENABLE_VIDEO_OVERLAYS', tabId }, (response) => {
-        if (response?.success) {
-          setVideoOverlaysEnabled(true);
-        }
+        // Update state regardless - if failed, user can try again
+        setVideoOverlaysEnabled(response?.success !== false);
       });
     } else {
-      chrome.runtime.sendMessage({ type: 'DISABLE_VIDEO_OVERLAYS', tabId }, (response) => {
-        if (response?.success) {
-          setVideoOverlaysEnabled(false);
-        }
-      });
+      // When disabling, update local state immediately and send message
+      setVideoOverlaysEnabled(false);
+      chrome.runtime.sendMessage({ type: 'DISABLE_VIDEO_OVERLAYS', tabId });
     }
   }, [videoOverlaysEnabled]);
 

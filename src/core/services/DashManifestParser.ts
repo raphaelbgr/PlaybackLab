@@ -163,6 +163,10 @@ export class DashManifestParser implements IManifestParser {
       });
     }
 
+    // DASH MPDs are always 'master' type since they contain AdaptationSets with Representations
+    // (equivalent to HLS master playlist with variants)
+    const playlistType: 'master' | 'media' = videoVariants.length > 0 ? 'master' : 'media';
+
     return {
       type: 'dash',
       duration: manifest.duration,
@@ -173,6 +177,7 @@ export class DashManifestParser implements IManifestParser {
       drm,
       segments,
       raw: content,
+      playlistType,
     };
   }
 }

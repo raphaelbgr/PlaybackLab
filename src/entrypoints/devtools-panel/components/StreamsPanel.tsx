@@ -115,30 +115,6 @@ function ContentTypeIndicator({ contentType }: { contentType?: StreamContentType
   );
 }
 
-// Role Indicator Component (for hierarchy visualization)
-function RoleIndicator({ role }: { role?: StreamRole }) {
-  if (!role || role === 'standalone') {
-    return null;
-  }
-
-  const config: Record<StreamRole, { icon: string; label: string; className: string; indent: number; tooltip: string }> = {
-    master: { icon: '👑', label: 'MASTER', className: 'role-master', indent: 0, tooltip: 'Master manifest - index file that lists all available quality levels and tracks' },
-    variant: { icon: '├─', label: 'variant', className: 'role-variant', indent: 1, tooltip: 'Variant playlist - specific quality/bitrate version of the video' },
-    'audio-track': { icon: '├─', label: 'audio', className: 'role-audio', indent: 1, tooltip: 'Audio track - separate audio stream (e.g., different language)' },
-    'subtitle-track': { icon: '├─', label: 'subs', className: 'role-subtitle', indent: 1, tooltip: 'Subtitle track - captions or subtitles' },
-    standalone: { icon: '', label: '', className: '', indent: 0, tooltip: 'Standalone stream' },
-  };
-
-  const { icon, label, className, tooltip } = config[role];
-
-  return (
-    <span className={`role-badge ${className}`} title={tooltip}>
-      <span className="role-icon">{icon}</span>
-      <span className="role-label">{label}</span>
-    </span>
-  );
-}
-
 // Stream group type
 interface StreamGroup {
   key: string;
@@ -418,6 +394,13 @@ function StreamGroupCard({
   const isGroupPlaying = group.hasPlaying;
   const isGroupBuffering = group.primaryPlaybackState === 'buffering' || group.primaryPlaybackState === 'stalled';
 
+  // Check if any stream in the group has video variants (master playlist)
+  const hasVideoStream = group.streams.some(s => (s.manifest?.videoVariants?.length ?? 0) > 0);
+  // Check if any stream has segments only (media playlist, no video variants)
+  const hasSegmentsOnly = !hasVideoStream && group.streams.some(s =>
+    s.manifest && !s.manifest.videoVariants?.length && (s.manifest.segments?.length ?? 0) > 0
+  );
+
   return (
     <div className={`stream-group ${isExpanded ? 'expanded' : ''} ${isAnySelected ? 'has-selected' : ''} ${group.hasActive ? 'active' : ''} ${isGroupPlaying ? 'is-playing' : ''} ${isGroupBuffering ? 'is-buffering' : ''}`}>
       {/* Group Header */}
@@ -428,6 +411,16 @@ function StreamGroupCard({
         <span className={`type-badge ${typeToClassName(firstStream.info.type)}`} title={getStreamTypeTooltip(firstStream.info.type)}>
           {safeUpperCase(firstStream.info.type)}
         </span>
+
+        {/* VIDEO badge if any stream in group has video variants */}
+        {hasVideoStream && (
+          <span className="content-badge video" title="Contains master playlist with video variants">VIDEO</span>
+        )}
+
+        {/* SEGMENTS badge if no video but has segments */}
+        {hasSegmentsOnly && (
+          <span className="content-badge segments" title="Contains media playlist (segments only)">SEGMENTS</span>
+        )}
 
         {/* Content Type Badge */}
         <ContentTypeIndicator contentType={group.primaryContentType} />
@@ -473,7 +466,13 @@ function StreamGroupCard({
                 className={`stream-group-item ${selectedStreamId === stream.info.id ? 'selected' : ''} ${itemIsPlaying ? 'is-playing' : ''} ${isChild ? 'child-stream' : ''}`}
                 onClick={() => onSelectStream(stream.info.id)}
               >
-                <RoleIndicator role={stream.info.role} />
+                  {/* VIDEO/SEGMENTS badge for substreams */}
+                {stream.manifest?.videoVariants && stream.manifest.videoVariants.length > 0 && (
+                  <span className="content-badge video mini" title="Master playlist with video variants">VIDEO</span>
+                )}
+                {stream.manifest && !stream.manifest.videoVariants?.length && (stream.manifest.segments?.length ?? 0) > 0 && (
+                  <span className="content-badge segments mini" title="Media playlist (segments only)">SEGMENTS</span>
+                )}
                 {isStreamNew(stream.info.detectedAt) && (
                   <span className="new-badge mini" title="Recently detected">NEW</span>
                 )}
@@ -563,6 +562,20 @@ function ExpandableStreamCard({
           {safeUpperCase(info.type)}
         </span>
 
+        {/* VIDEO badge for master playlists with video variants */}
+        {manifest?.videoVariants && manifest.videoVariants.length > 0 && (
+          <span className="content-badge video" title="Master playlist with video variants">
+            VIDEO
+          </span>
+        )}
+
+        {/* SEGMENTS badge for media playlists (segments only, no video variants) */}
+        {manifest && !manifest.videoVariants?.length && (manifest.segments?.length ?? 0) > 0 && (
+          <span className="content-badge segments" title="Media playlist (segments only)">
+            SEGMENTS
+          </span>
+        )}
+
         {/* NEW Badge for recently detected streams */}
         {isNew && (
           <span className="new-badge" title="Recently detected stream">
@@ -647,8 +660,18 @@ function ExpandableStreamCard({
                   .sort((a, b) => (b.height || 0) - (a.height || 0))
                   .slice(0, 4)
                   .map((v, i) => (
-                    <div key={i} className="variant-chip">
-                      {v.height}p · {formatBitrateShort(v.bandwidth)}
+                    <div key={i} className="variant-chip with-copy" title={v.url}>
+                      <span className="variant-info">{v.height}p · {formatBitrateShort(v.bandwidth)}</span>
+                      <button
+                        className="variant-copy-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToClipboard(v.url);
+                        }}
+                        title="Copy variant URL"
+                      >
+                        📋
+                      </button>
                     </div>
                   ))}
                 {manifest.videoVariants.length > 4 && (
@@ -666,9 +689,21 @@ function ExpandableStreamCard({
               <div className="expanded-section-title">Audio Tracks</div>
               <div className="audio-preview">
                 {manifest.audioVariants.slice(0, 3).map((a, i) => (
-                  <span key={i} className="audio-chip">
-                    {a.language || 'und'} {a.name ? `(${a.name})` : ''}
-                  </span>
+                  <div key={i} className="audio-chip with-copy" title={a.url || 'Muxed audio'}>
+                    <span className="audio-info">{a.language || 'und'} {a.name ? `(${a.name})` : ''}</span>
+                    {a.url && (
+                      <button
+                        className="variant-copy-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToClipboard(a.url);
+                        }}
+                        title="Copy audio URL"
+                      >
+                        📋
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

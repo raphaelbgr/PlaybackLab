@@ -110,6 +110,11 @@ interface StreamCardProps {
 function StreamCard({ stream, isSelected, onSelect, onCopyUrl, onCopyCurl, onInspect, onRemove }: StreamCardProps) {
   const { info, manifest, isLoading, error } = stream;
 
+  // Check if this is a video stream (has video variants - master playlist)
+  const hasVideoVariants = (manifest?.videoVariants?.length ?? 0) > 0;
+  // Check if this is a media/segment-only playlist (has segments but no video variants)
+  const isSegmentsOnly = manifest && !hasVideoVariants && (manifest.segments?.length ?? 0) > 0;
+
   // Get variant count text
   const getVariantText = (): string | null => {
     if (!manifest) return null;
@@ -137,13 +142,27 @@ function StreamCard({ stream, isSelected, onSelect, onCopyUrl, onCopyCurl, onIns
 
   return (
     <div
-      className={`stream-card ${isSelected ? 'selected' : ''} ${info.isActive ? 'active' : ''}`}
+      className={`stream-card ${isSelected ? 'selected' : ''} ${info.isActive ? 'active' : ''} ${hasVideoVariants ? 'video-stream' : ''}`}
       onClick={onSelect}
     >
       <div className="stream-card-header">
         <span className={`type-badge ${typeToClassName(info.type)}`}>
           {safeUpperCase(info.type)}
         </span>
+
+        {/* VIDEO badge for streams with video variants (master playlist) */}
+        {hasVideoVariants && (
+          <span className="content-badge video" title="Master playlist with video variants">
+            VIDEO
+          </span>
+        )}
+
+        {/* SEGMENTS badge for media playlists (segments only, no video variants) */}
+        {isSegmentsOnly && (
+          <span className="content-badge segments" title="Media playlist (segments only)">
+            SEGMENTS
+          </span>
+        )}
 
         {info.isActive && (
           <span className="status-badge playing">

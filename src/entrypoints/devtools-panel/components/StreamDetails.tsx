@@ -260,13 +260,25 @@ function OverviewTab({ stream }: { stream: DetectedStream }) {
   };
 
   // Determine audio status
-  const hasSeperateAudioTracks = (manifest?.audioVariants?.length ?? 0) > 0;
-  const isAudioEmbedded = info.hasAudio && !hasSeperateAudioTracks;
+  // Check for separate (non-muxed) audio tracks - muxed tracks have isMuxed=true or empty URL
+  const hasSeparateAudioTracks = (manifest?.audioVariants ?? []).some(a => !a.isMuxed && a.url);
+  // Audio is embedded if we have audio in the video but no separate audio tracks
+  // OR if manifest has audio variants that are all muxed
+  const hasMuxedAudio = (manifest?.audioVariants ?? []).some(a => a.isMuxed);
+  const isAudioEmbedded = hasMuxedAudio || (info.hasAudio && !hasSeparateAudioTracks);
+
   const getAudioStatus = (): string => {
-    if (!info.hasAudio) return '—';
-    if (info.audioMuted) return 'Muted';
-    if (isAudioEmbedded) return 'Embedded';
-    return 'Playing';
+    // If video has audio (from content script detection)
+    if (info.hasAudio) {
+      if (info.audioMuted) return 'Muted';
+      if (isAudioEmbedded) return 'Embedded';
+      if (hasSeparateAudioTracks) return 'Playing';
+      return 'Embedded'; // Default to embedded if has audio but no separate tracks
+    }
+    // If manifest has audio info
+    if (hasMuxedAudio) return 'Embedded';
+    if (hasSeparateAudioTracks) return 'Available';
+    return '—';
   };
 
   // Get origin with ellipsis handling
