@@ -335,6 +335,101 @@ const codecErrors: Record<string, ErrorExplanation> = {
   },
 };
 
+// Access & Token Errors
+const accessErrors: Record<string, ErrorExplanation> = {
+  'CORS_BLOCKED': {
+    code: 'CORS_BLOCKED',
+    title: 'Cross-Origin Request Blocked',
+    description: 'The browser blocked the request because the server does not include the required CORS headers (Access-Control-Allow-Origin).',
+    possibleCauses: [
+      'Server does not set Access-Control-Allow-Origin header',
+      'Server restricts CORS to specific origins',
+      'CDN or proxy is stripping CORS headers',
+      'Request includes credentials but server disallows it',
+    ],
+    suggestedFixes: [
+      'Load the stream in the page first — the page\'s origin is likely allowed',
+      'Check server CORS configuration',
+      'Use a proxy or extension that adds CORS headers',
+      'Preview is not possible for CORS-restricted streams',
+    ],
+    severity: 'error',
+    category: 'network',
+  },
+  'HTTP_401': {
+    code: 'HTTP_401',
+    title: 'Unauthorized (401)',
+    description: 'The server requires authentication credentials to access this stream.',
+    possibleCauses: [
+      'Missing or invalid authentication token',
+      'Session has expired',
+      'API key or bearer token not included in request',
+      'Subscription or login required',
+    ],
+    suggestedFixes: [
+      'Log in to the streaming service first',
+      'Refresh the page to get a new session token',
+      'Check if custom headers (Authorization) are needed',
+      'Verify your account subscription is active',
+    ],
+    severity: 'error',
+    category: 'network',
+  },
+  'TOKEN_EXPIRED': {
+    code: 'TOKEN_EXPIRED',
+    title: 'Stream Token Expired',
+    description: 'The stream URL contains a time-limited token or signature that has expired.',
+    possibleCauses: [
+      'URL token has a short TTL (common on CDNs)',
+      'Page was open too long before playing',
+      'Token was generated for a different session',
+      'Server clock mismatch',
+    ],
+    suggestedFixes: [
+      'Reload the page to get a fresh stream URL with a new token',
+      'Re-navigate to the content to generate a new signed URL',
+      'Tokens typically expire in 1-24 hours depending on the CDN',
+    ],
+    severity: 'warning',
+    category: 'network',
+  },
+  'MSE_UNSUPPORTED': {
+    code: 'MSE_UNSUPPORTED',
+    title: 'MSE Stream — Preview Unavailable',
+    description: 'This stream uses Media Source Extensions (MSE) which requires the page\'s own player for playback. It cannot be previewed externally.',
+    possibleCauses: [
+      'Stream is fed via MSE/EME (YouTube, Netflix, etc.)',
+      'No standalone manifest URL available',
+      'Player constructs segments programmatically',
+    ],
+    suggestedFixes: [
+      'Use the page\'s native video player instead',
+      'Look for an HLS or DASH manifest URL in the network requests',
+      'MSE streams are inspectable but not externally playable',
+    ],
+    severity: 'info',
+    category: 'playback',
+  },
+  'MANIFEST_STALE': {
+    code: 'MANIFEST_STALE',
+    title: 'Manifest URL Stale / Expired',
+    description: 'The manifest URL is outdated and no longer returns valid content from the server.',
+    possibleCauses: [
+      'Live stream has ended and manifest was removed',
+      'CDN purged the cached manifest',
+      'Signed URL expired',
+      'Content was taken down or region-locked',
+    ],
+    suggestedFixes: [
+      'Reload the page to get a fresh manifest URL',
+      'Check if the content is still available on the platform',
+      'For live streams, wait for the next broadcast',
+    ],
+    severity: 'warning',
+    category: 'manifest',
+  },
+};
+
 // Combine all error databases
 const allErrors: Record<string, ErrorExplanation> = {
   ...networkErrors,
@@ -342,6 +437,7 @@ const allErrors: Record<string, ErrorExplanation> = {
   ...manifestErrors,
   ...playbackErrors,
   ...codecErrors,
+  ...accessErrors,
 };
 
 /**

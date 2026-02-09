@@ -18,6 +18,98 @@ interface MiniPlayerProps {
 
 type PlayerState = 'loading' | 'ready' | 'playing' | 'paused' | 'error' | 'drm-blocked';
 
+interface ClassifiedError {
+  title: string;
+  message: string;
+}
+
+/**
+ * Classify a playback error into a user-friendly title + message
+ */
+function classifyPlaybackError(error: string, url?: string): ClassifiedError {
+  const lowerError = error.toLowerCase();
+
+  // Auth errors (401/403)
+  if (lowerError.includes('401') || lowerError.includes('unauthorized')) {
+    return {
+      title: 'Authentication Required',
+      message: 'This stream requires authentication. Try loading it in the page first.',
+    };
+  }
+  if (lowerError.includes('403') || lowerError.includes('forbidden')) {
+    return {
+      title: 'Access Denied',
+      message: 'The server refused access. The URL token may be expired or geo-restricted.',
+    };
+  }
+
+  // CORS errors
+  if (lowerError.includes('cors') || lowerError.includes('access-control') || lowerError.includes('cross-origin')) {
+    return {
+      title: 'Cross-Origin Blocked',
+      message: 'The server doesn\'t allow cross-origin requests. Preview unavailable.',
+    };
+  }
+
+  // Manifest load errors
+  if (lowerError.includes('manifestloaderror') || lowerError.includes('manifestloaderror') ||
+      lowerError.includes('manifest_load_error') || lowerError.includes('failed to fetch manifest')) {
+    return {
+      title: 'Manifest Load Failed',
+      message: 'Could not fetch the manifest. The URL may be expired or invalid.',
+    };
+  }
+
+  // Fragment/segment load errors
+  if (lowerError.includes('fragloaderror') || lowerError.includes('frag_load_error') ||
+      lowerError.includes('segment') || lowerError.includes('fragment')) {
+    return {
+      title: 'Segment Load Failed',
+      message: 'Failed to load video segments. The stream may have ended.',
+    };
+  }
+
+  // Token expired (check URL for common token patterns)
+  if (url && (/[?&](token|hdnts|exp|expires|sig)=/i.test(url)) &&
+      (lowerError.includes('404') || lowerError.includes('410') || lowerError.includes('network'))) {
+    return {
+      title: 'Token Expired',
+      message: 'The stream URL contains an expired token. Try reloading the page.',
+    };
+  }
+
+  // Network errors
+  if (lowerError.includes('network') || lowerError.includes('fetch') || lowerError.includes('timeout') ||
+      lowerError.includes('aborterror') || lowerError.includes('net::')) {
+    return {
+      title: 'Network Error',
+      message: 'Could not reach the server. Check if the stream is still active.',
+    };
+  }
+
+  // 404 errors
+  if (lowerError.includes('404') || lowerError.includes('not found')) {
+    return {
+      title: 'Stream Not Found',
+      message: 'The stream URL returned 404. It may have been removed or expired.',
+    };
+  }
+
+  // MSE / unsupported
+  if (lowerError.includes('mse') || lowerError.includes('mediasource') || lowerError.includes('not supported')) {
+    return {
+      title: 'Unsupported Format',
+      message: 'This stream format can\'t be previewed. Use the page\'s native player.',
+    };
+  }
+
+  // Default
+  return {
+    title: 'Playback Error',
+    message: error,
+  };
+}
+
 // Persistence for collapsed state
 const PREVIEW_STATE_KEY = 'pbl_preview_collapsed';
 const MAX_STORED_PREVIEWS = 100;
@@ -143,6 +235,13 @@ export function MiniPlayer({ url, type, hasDrm, requestHeaders, onError }: MiniP
       return;
     }
 
+    // MSE streams can't be previewed externally
+    if (type === 'mse') {
+      setPlayerState('error');
+      setError('MSE stream — use the page\'s native player');
+      return;
+    }
+
     const video = videoRef.current;
     setPlayerState('loading');
     setError(null);
@@ -203,16 +302,18 @@ export function MiniPlayer({ url, type, hasDrm, requestHeaders, onError }: MiniP
             hls.on(Hls.Events.ERROR, (_, data) => {
               if (cancelled) return;
               if (data.fatal) {
+                const statusCode = (data.response as { code?: number } | undefined)?.code;
+                const statusSuffix = statusCode ? ` (${statusCode})` : '';
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
-                    handleError(`Network error: ${data.details}`);
+                    handleError(`Network error: ${data.details}${statusSuffix}`);
                     break;
                   case Hls.ErrorTypes.MEDIA_ERROR:
                     // Try to recover from media errors
                     hls.recoverMediaError();
                     break;
                   default:
-                    handleError(`Playback error: ${data.details}`);
+                    handleError(`Playback error: ${data.details}${statusSuffix}`);
                 }
               }
             });
@@ -407,12 +508,16 @@ export function MiniPlayer({ url, type, hasDrm, requestHeaders, onError }: MiniP
           </div>
         )}
 
-        {playerState === 'error' && (
-          <div className="mini-player-overlay error">
-            <span className="error-icon">⚠️</span>
-            <span className="error-text">{error || 'Playback error'}</span>
-          </div>
-        )}
+        {playerState === 'error' && (() => {
+          const classified = classifyPlaybackError(error || 'Playback error', url);
+          return (
+            <div className="mini-player-overlay error">
+              <span className="error-icon">⚠️</span>
+              <span className="error-title-text">{classified.title}</span>
+              <span className="error-text">{classified.message}</span>
+            </div>
+          );
+        })()}
 
         {playerState === 'drm-blocked' && (
           <div className="mini-player-overlay drm">

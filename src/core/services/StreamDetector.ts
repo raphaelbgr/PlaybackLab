@@ -153,8 +153,8 @@ export class StreamDetector implements IStreamDetector {
         return 'dash';
       }
 
-      // YouTube video URLs (googlevideo.com)
-      if (hostname.includes('googlevideo.com')) {
+      // YouTube video URLs (googlevideo.com) — only actual video/audio streams
+      if (hostname.includes('googlevideo.com') && pathname.includes('/videoplayback')) {
         return 'mse'; // YouTube uses MSE with DASH
       }
 
@@ -247,29 +247,72 @@ export class StreamDetector implements IStreamDetector {
   }
 
   /**
-   * Check if this is likely a master/main manifest (not a variant or segment playlist)
+   * Check if this is likely a master/main manifest (not a variant, segment, or chunk)
    */
   isMasterManifest(url: string): boolean {
-    const lowerUrl = url.toLowerCase();
+    try {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname.toLowerCase();
+      const hostname = urlObj.hostname.toLowerCase();
 
-    // Likely variant playlists (sub-playlists)
-    const variantPatterns = [
-      /_\d+p\.m3u8/,           // _720p.m3u8, _1080p.m3u8
-      /\/\d+\/index\.m3u8/,    // /720/index.m3u8
-      /_video_\d+/,            // _video_1080
-      /_audio_\d+/,            // _audio_128000
-      /chunklist/i,            // chunklist_*.m3u8
-      /media_\d+/i,            // media_0.m3u8
-      /stream_\d+/i,           // stream_0.m3u8
-    ];
+      // --- Segment file extensions: these are NEVER master manifests ---
+      const segmentExtensions = ['.ts', '.m4s', '.m4v', '.m4a', '.aac', '.vtt', '.webvtt'];
+      for (const ext of segmentExtensions) {
+        if (pathname.endsWith(ext)) {
+          return false;
+        }
+      }
 
-    for (const pattern of variantPatterns) {
-      if (pattern.test(lowerUrl)) {
+      // .mp4 with segment-like patterns (init segments, numbered chunks)
+      if (pathname.endsWith('.mp4') && (
+        /segment[\d_-]/i.test(pathname) ||
+        /chunk[\d_-]/i.test(pathname) ||
+        /frag[\d_-]/i.test(pathname) ||
+        /\/init[.\-_]/i.test(pathname) ||
+        /\/range\//i.test(pathname)
+      )) {
         return false;
       }
-    }
 
-    return true;
+      // --- Known chunk/segment URL patterns ---
+      // YouTube/Google Video chunks
+      if (hostname.includes('googlevideo.com') && pathname.includes('/videoplayback')) {
+        return false;
+      }
+
+      // Generic segment patterns in path
+      if (/\/segment[\d_-]+/i.test(pathname) ||
+          /\/chunk[\d_-]+/i.test(pathname) ||
+          /\/chunk-stream/i.test(pathname) ||
+          /\/frag[\d_-]+/i.test(pathname) ||
+          /Fragments\(/i.test(pathname) ||         // Microsoft Smooth Streaming
+          /\/sq\/\d+/i.test(pathname) ||            // Sequence number segments
+          /\/range\/\d+-\d+/i.test(pathname)) {     // Range-based segments
+        return false;
+      }
+
+      // --- Variant playlists (sub-playlists) ---
+      const lowerUrl = url.toLowerCase();
+      const variantPatterns = [
+        /_\d+p\.m3u8/,           // _720p.m3u8, _1080p.m3u8
+        /\/\d+\/index\.m3u8/,    // /720/index.m3u8
+        /_video_\d+/,            // _video_1080
+        /_audio_\d+/,            // _audio_128000
+        /chunklist/i,            // chunklist_*.m3u8
+        /media_\d+/i,            // media_0.m3u8
+        /stream_\d+/i,           // stream_0.m3u8
+      ];
+
+      for (const pattern of variantPatterns) {
+        if (pattern.test(lowerUrl)) {
+          return false;
+        }
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

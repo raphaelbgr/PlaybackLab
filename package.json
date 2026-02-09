@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dailymotion/vast-client": "^6.4.2",
     "@wxt-dev/module-react": "^1.1.5",
     "chart.js": "^4.4.2",
     "clsx": "^2.1.1",

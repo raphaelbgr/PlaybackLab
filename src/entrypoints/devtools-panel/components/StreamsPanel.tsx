@@ -11,15 +11,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { generateCurlCommand, copyToClipboard } from '../../../shared/utils/copyAsCurl';
 import { useToast } from './Toast';
 import { safeUpperCase, typeToClassName, formatBitrateShort, getFilenameFromUrl, getDisplayUrl, getStreamGroupKey, cleanPageTitle } from '../../../shared/utils/stringUtils';
-import type { PlaybackState, StreamContentType, StreamRole } from '../../../core/interfaces/IStreamDetector';
-
-// Time window (ms) to consider a stream as "new"
-const NEW_STREAM_WINDOW_MS = 15000; // 15 seconds
-
-// Helper function to check if a stream is recently detected
-function isStreamNew(detectedAt: number): boolean {
-  return Date.now() - detectedAt < NEW_STREAM_WINDOW_MS;
-}
+import type { PlaybackState } from '../../../core/interfaces/IStreamDetector';
 
 // Helper function to get tooltip for stream type
 function getStreamTypeTooltip(type: string | undefined): string {
@@ -65,54 +57,18 @@ function PlaybackStatusIndicator({ state, isActive, showLabel = false }: { state
   );
 }
 
-// Audio Indicator Component
-function AudioIndicator({ hasAudio, isMuted, isPlaying }: { hasAudio?: boolean; isMuted?: boolean; isPlaying?: boolean }) {
-  if (!hasAudio) {
-    return null;
-  }
-
-  // Determine audio state
-  const audioPlaying = hasAudio && !isMuted && isPlaying;
-
-  return (
-    <span className={`audio-indicator ${audioPlaying ? 'playing' : ''} ${isMuted ? 'muted' : ''}`} title={isMuted ? 'Muted' : (audioPlaying ? 'Audio playing' : 'Audio available')}>
-      {isMuted ? (
-        <span className="audio-icon muted">🔇</span>
-      ) : (
-        <span className="audio-icon">
-          <span className="audio-bars">
-            <span className="bar"></span>
-            <span className="bar"></span>
-            <span className="bar"></span>
-          </span>
-        </span>
-      )}
-    </span>
-  );
-}
-
-// Content Type Indicator Component
-function ContentTypeIndicator({ contentType }: { contentType?: StreamContentType }) {
-  if (!contentType || contentType === 'unknown') {
-    return null;
-  }
-
-  const config: Record<StreamContentType, { icon: string; label: string; className: string; tooltip: string }> = {
-    video: { icon: '🎬', label: 'VIDEO', className: 'content-video', tooltip: 'Video content - contains video tracks' },
-    audio: { icon: '🎵', label: 'AUDIO', className: 'content-audio', tooltip: 'Audio-only content - no video tracks' },
-    subtitle: { icon: '📝', label: 'SUBS', className: 'content-subtitle', tooltip: 'Subtitle/caption track' },
-    mixed: { icon: '📦', label: 'MIXED', className: 'content-mixed', tooltip: 'Mixed content - contains multiple media types' },
-    unknown: { icon: '❓', label: '', className: '', tooltip: 'Content type not determined' },
-  };
-
-  const { icon, label, className, tooltip } = config[contentType];
-
-  return (
-    <span className={`content-type-badge ${className}`} title={tooltip}>
-      <span className="content-icon">{icon}</span>
-      <span className="content-label">{label}</span>
-    </span>
-  );
+// Helper: get max resolution label from stream manifest
+function getMaxResolutionLabel(stream: DetectedStream): string | null {
+  const variants = stream.manifest?.videoVariants;
+  if (!variants?.length) return null;
+  const maxHeight = Math.max(...variants.map(v => v.height || 0));
+  if (maxHeight >= 2160) return '4K';
+  if (maxHeight >= 1440) return '2K';
+  if (maxHeight >= 1080) return '1080p';
+  if (maxHeight >= 720) return '720p';
+  if (maxHeight >= 480) return '480p';
+  if (maxHeight > 0) return `${maxHeight}p`;
+  return null;
 }
 
 // Stream group type
@@ -124,9 +80,8 @@ interface StreamGroup {
   streams: DetectedStream[];
   hasActive: boolean;
   hasPlaying: boolean;
-  hasAudio: boolean;
   primaryPlaybackState?: PlaybackState;
-  primaryContentType?: StreamContentType;
+  hasDrm: boolean;
 }
 
 export function StreamsPanel() {
@@ -175,7 +130,7 @@ export function StreamsPanel() {
         existing.streams.push(stream);
         if (stream.info.isActive) existing.hasActive = true;
         if (stream.info.playbackState === 'playing') existing.hasPlaying = true;
-        if (stream.info.hasAudio) existing.hasAudio = true;
+        if (stream.manifest?.drm?.length) existing.hasDrm = true;
         // Update primary playback state if this one is more important
         const currentPriority = existing.primaryPlaybackState ? statePriority[existing.primaryPlaybackState] : -1;
         const newPriority = stream.info.playbackState ? statePriority[stream.info.playbackState] : -1;
@@ -185,10 +140,6 @@ export function StreamsPanel() {
         // Use the most recent page title
         if (stream.info.pageTitle && !existing.pageTitle) {
           existing.pageTitle = stream.info.pageTitle;
-        }
-        // Use the first defined content type
-        if (stream.info.contentType && !existing.primaryContentType) {
-          existing.primaryContentType = stream.info.contentType;
         }
       } else {
         try {
@@ -201,9 +152,8 @@ export function StreamsPanel() {
             streams: [stream],
             hasActive: !!stream.info.isActive,
             hasPlaying: stream.info.playbackState === 'playing',
-            hasAudio: !!stream.info.hasAudio,
             primaryPlaybackState: stream.info.playbackState,
-            primaryContentType: stream.info.contentType,
+            hasDrm: !!(stream.manifest?.drm?.length),
           });
         } catch {
           // Invalid URL, create ungrouped entry
@@ -215,9 +165,8 @@ export function StreamsPanel() {
             streams: [stream],
             hasActive: !!stream.info.isActive,
             hasPlaying: stream.info.playbackState === 'playing',
-            hasAudio: !!stream.info.hasAudio,
             primaryPlaybackState: stream.info.playbackState,
-            primaryContentType: stream.info.contentType,
+            hasDrm: !!(stream.manifest?.drm?.length),
           });
         }
       }
@@ -378,13 +327,11 @@ function StreamGroupCard({
         stream={firstStream}
         isSelected={selectedStreamId === firstStream.info.id}
         isExpanded={expandedCards.has(firstStream.info.id)}
-        isNew={isStreamNew(firstStream.info.detectedAt)}
         onSelect={() => onSelectStream(firstStream.info.id)}
         onToggleExpand={() => onToggleCard(firstStream.info.id)}
         onCopyUrl={() => onCopyUrl(firstStream.info.url)}
         onCopyCurl={() => onCopyCurl(firstStream.info.url, firstStream.info.requestHeaders)}
         onRemove={(e) => onRemove(firstStream.info.id, e)}
-        showTitle={true}
         title={cleanedTitle}
       />
     );
@@ -394,16 +341,18 @@ function StreamGroupCard({
   const isGroupPlaying = group.hasPlaying;
   const isGroupBuffering = group.primaryPlaybackState === 'buffering' || group.primaryPlaybackState === 'stalled';
 
-  // Check if any stream in the group has video variants (master playlist)
-  const hasVideoStream = group.streams.some(s => (s.manifest?.videoVariants?.length ?? 0) > 0);
-  // Check if any stream has segments only (media playlist, no video variants)
-  const hasSegmentsOnly = !hasVideoStream && group.streams.some(s =>
-    s.manifest && !s.manifest.videoVariants?.length && (s.manifest.segments?.length ?? 0) > 0
-  );
+  // Get max resolution across group
+  const groupMaxRes = (() => {
+    for (const s of group.streams) {
+      const label = getMaxResolutionLabel(s);
+      if (label) return label;
+    }
+    return null;
+  })();
 
   return (
     <div className={`stream-group ${isExpanded ? 'expanded' : ''} ${isAnySelected ? 'has-selected' : ''} ${group.hasActive ? 'active' : ''} ${isGroupPlaying ? 'is-playing' : ''} ${isGroupBuffering ? 'is-buffering' : ''}`}>
-      {/* Group Header */}
+      {/* Group Header - Simplified: Type + Status + Quality + DRM only */}
       <div className="stream-group-header" onClick={onToggleGroup}>
         <button className="expand-btn">
           {isExpanded ? '▼' : '▶'}
@@ -412,31 +361,11 @@ function StreamGroupCard({
           {safeUpperCase(firstStream.info.type)}
         </span>
 
-        {/* VIDEO badge if any stream in group has video variants */}
-        {hasVideoStream && (
-          <span className="content-badge video" title="Contains master playlist with video variants">VIDEO</span>
-        )}
-
-        {/* SEGMENTS badge if no video but has segments */}
-        {hasSegmentsOnly && (
-          <span className="content-badge segments" title="Contains media playlist (segments only)">SEGMENTS</span>
-        )}
-
-        {/* Content Type Badge */}
-        <ContentTypeIndicator contentType={group.primaryContentType} />
-
-        {/* Playback Status Badge with Label for active streams */}
+        {/* Playback Status Badge - only for active states */}
         <PlaybackStatusIndicator
           state={group.primaryPlaybackState}
           isActive={group.hasActive}
           showLabel={isGroupPlaying || isGroupBuffering}
-        />
-
-        {/* Audio Indicator for group */}
-        <AudioIndicator
-          hasAudio={group.hasAudio}
-          isMuted={false}
-          isPlaying={isGroupPlaying}
         />
 
         <div className="group-info">
@@ -445,6 +374,17 @@ function StreamGroupCard({
           )}
           <span className="group-filename">{group.filename}</span>
         </div>
+
+        {/* Quality badge */}
+        {groupMaxRes && (
+          <span className="quality-badge" title="Max resolution">{groupMaxRes}</span>
+        )}
+
+        {/* DRM indicator */}
+        {group.hasDrm && (
+          <span className="drm-indicator" title="DRM protected">🔐</span>
+        )}
+
         <span className="group-count">{group.streams.length}</span>
       </div>
 
@@ -456,36 +396,24 @@ function StreamGroupCard({
       {/* Expanded: Show all streams in group */}
       {isExpanded && (
         <div className="stream-group-items">
-          {group.streams.map((stream, index) => {
+          {group.streams.map((stream) => {
             const itemIsPlaying = stream.info.playbackState === 'playing';
             const role = stream.info.role;
             const isChild = role === 'variant' || role === 'audio-track' || role === 'subtitle-track';
+            const itemRes = getMaxResolutionLabel(stream);
             return (
               <div
                 key={stream.info.id}
                 className={`stream-group-item ${selectedStreamId === stream.info.id ? 'selected' : ''} ${itemIsPlaying ? 'is-playing' : ''} ${isChild ? 'child-stream' : ''}`}
                 onClick={() => onSelectStream(stream.info.id)}
               >
-                  {/* VIDEO/SEGMENTS badge for substreams */}
-                {stream.manifest?.videoVariants && stream.manifest.videoVariants.length > 0 && (
-                  <span className="content-badge video mini" title="Master playlist with video variants">VIDEO</span>
-                )}
-                {stream.manifest && !stream.manifest.videoVariants?.length && (stream.manifest.segments?.length ?? 0) > 0 && (
-                  <span className="content-badge segments mini" title="Media playlist (segments only)">SEGMENTS</span>
-                )}
-                {isStreamNew(stream.info.detectedAt) && (
-                  <span className="new-badge mini" title="Recently detected">NEW</span>
-                )}
-                <ContentTypeIndicator contentType={stream.info.contentType} />
                 <PlaybackStatusIndicator state={stream.info.playbackState} isActive={stream.info.isActive} />
-                <AudioIndicator
-                  hasAudio={stream.info.hasAudio}
-                  isMuted={stream.info.audioMuted}
-                  isPlaying={itemIsPlaying}
-                />
                 <span className="item-url" title={stream.info.url}>
                   {getDisplayUrl(stream.info.url, 30)}
                 </span>
+                {itemRes && (
+                  <span className="quality-badge mini">{itemRes}</span>
+                )}
                 <span className="item-time">
                   {formatDistanceToNow(stream.info.detectedAt, { addSuffix: true })}
                 </span>
@@ -509,13 +437,11 @@ interface ExpandableStreamCardProps {
   stream: ReturnType<typeof useStreamsList>[0];
   isSelected: boolean;
   isExpanded: boolean;
-  isNew: boolean;
   onSelect: () => void;
   onToggleExpand: () => void;
   onCopyUrl: () => void;
   onCopyCurl: () => void;
   onRemove: (e: React.MouseEvent) => void;
-  showTitle?: boolean;
   title?: string;
 }
 
@@ -523,13 +449,11 @@ function ExpandableStreamCard({
   stream,
   isSelected,
   isExpanded,
-  isNew,
   onSelect,
   onToggleExpand,
   onCopyUrl,
   onCopyCurl,
   onRemove,
-  showTitle = false,
   title,
 }: ExpandableStreamCardProps) {
   const { info, manifest, isLoading, error } = stream;
@@ -543,12 +467,16 @@ function ExpandableStreamCard({
   const isPlaying = info.playbackState === 'playing';
   const isBuffering = info.playbackState === 'buffering' || info.playbackState === 'stalled';
 
+  // Quality badge
+  const resLabel = getMaxResolutionLabel(stream);
+  const hasDrm = (manifest?.drm?.length ?? 0) > 0;
+
   return (
     <div
       className={`stream-card ${isSelected ? 'selected' : ''} ${info.isActive ? 'active' : ''} ${isExpanded ? 'expanded' : ''} ${isPlaying ? 'is-playing' : ''} ${isBuffering ? 'is-buffering' : ''}`}
       onClick={onSelect}
     >
-      {/* Card Header */}
+      {/* Card Header - Simplified: Type + Status + Filename + Quality + DRM */}
       <div className="stream-card-header">
         <button
           className="expand-btn"
@@ -562,48 +490,27 @@ function ExpandableStreamCard({
           {safeUpperCase(info.type)}
         </span>
 
-        {/* VIDEO badge for master playlists with video variants */}
-        {manifest?.videoVariants && manifest.videoVariants.length > 0 && (
-          <span className="content-badge video" title="Master playlist with video variants">
-            VIDEO
-          </span>
-        )}
-
-        {/* SEGMENTS badge for media playlists (segments only, no video variants) */}
-        {manifest && !manifest.videoVariants?.length && (manifest.segments?.length ?? 0) > 0 && (
-          <span className="content-badge segments" title="Media playlist (segments only)">
-            SEGMENTS
-          </span>
-        )}
-
-        {/* NEW Badge for recently detected streams */}
-        {isNew && (
-          <span className="new-badge" title="Recently detected stream">
-            NEW
-          </span>
-        )}
-
-        {/* Content Type Badge */}
-        <ContentTypeIndicator contentType={info.contentType} />
-
-        {/* Playback Status Badge with Label for active streams */}
+        {/* Playback Status - only for active states */}
         <PlaybackStatusIndicator
           state={info.playbackState}
           isActive={info.isActive}
           showLabel={isPlaying || isBuffering}
         />
 
-        {/* Audio Indicator */}
-        <AudioIndicator
-          hasAudio={info.hasAudio}
-          isMuted={info.audioMuted}
-          isPlaying={isPlaying}
-        />
-
         {isLoading && <span className="status-badge loading">...</span>}
         {error && <span className="status-badge error">!</span>}
 
         <span className="stream-filename">{filename}</span>
+
+        {/* Quality badge */}
+        {resLabel && (
+          <span className="quality-badge" title="Max resolution">{resLabel}</span>
+        )}
+
+        {/* DRM indicator */}
+        {hasDrm && (
+          <span className="drm-indicator" title={`DRM: ${manifest!.drm!.map(d => d.type).join(', ')}`}>🔐</span>
+        )}
 
         <button
           className="remove-btn"
@@ -629,20 +536,20 @@ function ExpandableStreamCard({
       {/* Quick Stats (always visible) */}
       <div className="stream-quick-stats">
         {manifest?.videoVariants?.length ? (
-          <>
-            <span className="quick-stat">
-              {Math.max(...manifest.videoVariants.map(v => v.height || 0))}p
-            </span>
-            <span className="quick-stat">
-              {manifest.videoVariants.length} variants
-            </span>
-          </>
-        ) : null}
-        {manifest?.drm?.length ? (
-          <span className="quick-stat drm">
-            🔐 {manifest.drm[0].type}
+          <span className="quick-stat">
+            {manifest.videoVariants.length} variants
           </span>
         ) : null}
+        {manifest?.audioVariants?.length ? (
+          <span className="quick-stat">
+            {manifest.audioVariants.length} audio
+          </span>
+        ) : null}
+        {stream.segmentCount > 0 && (
+          <span className="quick-stat segments" title="Segments/chunks detected for this stream">
+            {stream.segmentCount} chunks
+          </span>
+        )}
         <span className="quick-stat time">
           {formatDistanceToNow(info.detectedAt, { addSuffix: true })}
         </span>

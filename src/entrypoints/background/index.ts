@@ -4,8 +4,10 @@
  */
 
 import { streamDetector } from '../../core/services/StreamDetector';
+import { adDetector } from '../../core/services/AdDetector';
 import type { StreamInfo, PlaybackState } from '../../core/interfaces/IStreamDetector';
 import type { ParsedManifest } from '../../core/interfaces/IManifestParser';
+import type { DetectedAd } from '../../core/interfaces/IAdDetector';
 import { safeGetTab } from '../../shared/utils/chromeApiSafe';
 import { urlsMatch } from '../../shared/utils/stringUtils';
 
@@ -17,6 +19,10 @@ const getHlsParser = async () => {
 const getDashParser = async () => {
   const { DashManifestParser } = await import('../../core/services/DashManifestParser');
   return new DashManifestParser();
+};
+const getVastParser = async () => {
+  const { VastParser } = await import('../../core/services/VastParser');
+  return new VastParser();
 };
 
 interface VideoPlaybackInfo {
@@ -74,6 +80,9 @@ export default defineBackground(() => {
   // Track which tabs have video overlays enabled
   const overlaysEnabledTabs = new Set<number>();
 
+  // Store detected ads per tab (always enabled)
+  const tabAds = new Map<number, DetectedAd[]>();
+
   // Listen for web requests to detect streams
   chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
@@ -91,47 +100,52 @@ export default defineBackground(() => {
       if (result.detected && result.stream) {
         const stream = result.stream;
 
-        // Only notify for master manifests by default
         if (stream.isMaster) {
-          console.log('[PlaybackLab] Master manifest detected:', stream.type, stream.url);
-
-          // Check if this stream is active (being played)
-          const activeSources = activeVideoSources.get(stream.tabId) || [];
-          stream.isActive = activeSources.some(src => urlsMatch(src, stream.url));
-
-          // Get page info (title, URL) from tab - safely handle closed tabs
-          safeGetTab(stream.tabId).then((tab) => {
-            if (tab) {
-              stream.pageTitle = tab.title;
-              stream.pageUrl = tab.url;
+          // Master manifest — add to stream list
+          addMasterStream(stream);
+        } else {
+          // Segment/chunk — try to match to an existing parent stream
+          const parentStream = findParentStream(stream.tabId, stream.url);
+          if (parentStream) {
+            chrome.runtime.sendMessage({
+              type: 'SEGMENT_DETECTED',
+              payload: {
+                parentStreamId: parentStream.id,
+                segmentUrl: stream.url,
+              },
+            }).catch(() => {});
+          } else {
+            // No parent found — for known streaming CDNs, create a synthetic parent
+            const platform = streamDetector.detectPlatform(stream.url);
+            if (platform) {
+              console.log('[PlaybackLab] Creating synthetic parent for', platform, 'segment');
+              stream.isMaster = true;
+              addMasterStream(stream);
             }
+          }
+        }
+      }
 
-            // Store in tab map
-            const streams = tabStreams.get(stream.tabId) || [];
-            // Avoid duplicates
-            if (!streams.some(s => s.url === stream.url)) {
-              streams.push(stream);
-              tabStreams.set(stream.tabId, streams);
+      // Ad detection (always enabled - separate from stream filtering)
+      const adResult = adDetector.processRequest(details);
+      if (adResult.detected && adResult.ad) {
+        const ad = adResult.ad;
+        console.log('[PlaybackLab] Ad detected:', ad.format, ad.source, ad.url);
 
-              // Notify DevTools panel (ignore errors if panel not open)
-              chrome.runtime.sendMessage({
-                type: 'STREAM_DETECTED',
-                payload: stream,
-              }).catch(() => {});
+        // Store in tab map
+        const ads = tabAds.get(ad.tabId) || [];
+        if (!ads.some(a => a.url === ad.url)) {
+          ads.push(ad);
+          tabAds.set(ad.tabId, ads);
 
-              // Update content script cache if overlays are enabled
-              if (overlaysEnabledTabs.has(stream.tabId)) {
-                const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
-                chrome.tabs.sendMessage(stream.tabId, {
-                  type: 'UPDATE_STREAMS_CACHE',
-                  payload: { streams: streamsCache },
-                }).catch(() => {});
-              }
+          // Notify DevTools panel
+          chrome.runtime.sendMessage({
+            type: 'AD_DETECTED',
+            payload: ad,
+          }).catch(() => {});
 
-              // Auto-fetch and parse manifest in background
-              autoFetchManifest(stream);
-            }
-          });
+          // Auto-fetch and parse VAST/VMAP
+          autoFetchAdContent(ad);
         }
       }
 
@@ -226,12 +240,14 @@ export default defineBackground(() => {
   chrome.tabs.onRemoved.addListener((tabId) => {
     tabStreams.delete(tabId);
     tabNetworkRequests.delete(tabId);
+    tabAds.delete(tabId);
     networkCaptureEnabled.delete(tabId);
     autoDetectionEnabled.delete(tabId);
     filterAdsEnabled.delete(tabId);
     activeVideoSources.delete(tabId);
     overlaysEnabledTabs.delete(tabId);
     streamDetector.clearForTab(tabId);
+    adDetector.clearForTab(tabId);
   });
 
   // Clean up when tab navigates
@@ -239,9 +255,11 @@ export default defineBackground(() => {
     if (changeInfo.status === 'loading') {
       tabStreams.delete(tabId);
       tabNetworkRequests.delete(tabId);
+      tabAds.delete(tabId);
       activeVideoSources.delete(tabId);
       overlaysEnabledTabs.delete(tabId);
       streamDetector.clearForTab(tabId);
+      adDetector.clearForTab(tabId);
     }
   });
 
@@ -253,6 +271,21 @@ export default defineBackground(() => {
         const streams = tabStreams.get(tabId) || [];
         sendResponse({ streams });
         return false;
+      }
+
+      case 'GET_ADS': {
+        const tabId = message.tabId as number;
+        const ads = tabAds.get(tabId) || [];
+        sendResponse({ ads });
+        return false;
+      }
+
+      case 'FETCH_AD': {
+        const { url, headers } = message.payload as { url: string; headers?: Record<string, string> };
+        fetchAdContent(url, headers)
+          .then((result) => sendResponse(result))
+          .catch((error: Error) => sendResponse({ success: false, error: error.message }));
+        return true;
       }
 
       case 'FETCH_MANIFEST': {
@@ -436,7 +469,7 @@ export default defineBackground(() => {
           };
 
           // Try to ping content script first
-          chrome.tabs.sendMessage(tabId, { type: 'GET_OVERLAY_STATUS' }, async (response) => {
+          chrome.tabs.sendMessage(tabId, { type: 'GET_OVERLAY_STATUS' }, async () => {
             if (chrome.runtime.lastError) {
               // Content script not loaded - inject it
               console.log('[PlaybackLab] Content script not found, injecting...');
@@ -669,6 +702,138 @@ export default defineBackground(() => {
     return statusTexts[status] || '';
   }
 
+  // Add a master/parent stream to the tab's stream list and notify the panel
+  function addMasterStream(stream: StreamInfo): void {
+    console.log('[PlaybackLab] Master stream detected:', stream.type, stream.url);
+
+    // Check if this stream is active (being played)
+    const activeSources = activeVideoSources.get(stream.tabId) || [];
+    stream.isActive = activeSources.some(src => urlsMatch(src, stream.url));
+
+    // Get page info (title, URL) from tab - safely handle closed tabs
+    safeGetTab(stream.tabId).then((tab) => {
+      if (tab) {
+        stream.pageTitle = tab.title;
+        stream.pageUrl = tab.url;
+      }
+
+      // Store in tab map
+      const streams = tabStreams.get(stream.tabId) || [];
+      // Avoid duplicates — for CDN segments, also check hostname match to avoid
+      // multiple synthetic parents from the same CDN
+      const isDuplicate = streams.some(s => {
+        if (s.url === stream.url) return true;
+        // For CDN synthetic parents, dedupe by hostname
+        try {
+          const existingHost = new URL(s.url).hostname;
+          const newHost = new URL(stream.url).hostname;
+          // Same base hostname (e.g., *.googlevideo.com)
+          const existingBase = existingHost.split('.').slice(-2).join('.');
+          const newBase = newHost.split('.').slice(-2).join('.');
+          if (existingBase === newBase && s.type === stream.type) return true;
+        } catch { /* ignore */ }
+        return false;
+      });
+
+      if (!isDuplicate) {
+        streams.push(stream);
+        tabStreams.set(stream.tabId, streams);
+
+        // Notify DevTools panel
+        chrome.runtime.sendMessage({
+          type: 'STREAM_DETECTED',
+          payload: stream,
+        }).catch(() => {});
+
+        // Update content script cache if overlays are enabled
+        if (overlaysEnabledTabs.has(stream.tabId)) {
+          const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
+          chrome.tabs.sendMessage(stream.tabId, {
+            type: 'UPDATE_STREAMS_CACHE',
+            payload: { streams: streamsCache },
+          }).catch(() => {});
+        }
+
+        // Auto-fetch and parse manifest (only for HLS/DASH, skipped for MSE)
+        autoFetchManifest(stream);
+      } else {
+        // Duplicate CDN stream — route as segment to the existing one
+        const existingParent = streams.find(s => {
+          try {
+            const existingBase = new URL(s.url).hostname.split('.').slice(-2).join('.');
+            const newBase = new URL(stream.url).hostname.split('.').slice(-2).join('.');
+            return existingBase === newBase && s.type === stream.type;
+          } catch { return false; }
+        });
+        if (existingParent) {
+          chrome.runtime.sendMessage({
+            type: 'SEGMENT_DETECTED',
+            payload: { parentStreamId: existingParent.id, segmentUrl: stream.url },
+          }).catch(() => {});
+        }
+      }
+    });
+  }
+
+  // Find a parent stream for a segment URL by matching hostname + shared path prefix
+  function findParentStream(tabId: number, segmentUrl: string): StreamInfo | null {
+    const streams = tabStreams.get(tabId);
+    if (!streams?.length) return null;
+
+    try {
+      const segUrl = new URL(segmentUrl);
+      const segHost = segUrl.hostname;
+      const segBase = segHost.split('.').slice(-2).join('.');
+      const segPathParts = segUrl.pathname.split('/').filter(Boolean);
+
+      let bestMatch: StreamInfo | null = null;
+      let bestMatchLength = 0;
+
+      for (const stream of streams) {
+        try {
+          const streamUrl = new URL(stream.url);
+          const streamHost = streamUrl.hostname;
+          const streamBase = streamHost.split('.').slice(-2).join('.');
+
+          // Match by exact hostname OR same base domain (for CDNs like *.googlevideo.com)
+          if (streamHost !== segHost && streamBase !== segBase) continue;
+
+          // For same-base-domain CDN matches (e.g., googlevideo.com), accept as parent
+          if (streamHost !== segHost && streamBase === segBase) {
+            if (!bestMatch || bestMatchLength === 0) {
+              bestMatch = stream;
+              bestMatchLength = 1;
+            }
+            continue;
+          }
+
+          // Count shared path prefix segments
+          const streamPathParts = streamUrl.pathname.split('/').filter(Boolean);
+          let shared = 0;
+          for (let i = 0; i < Math.min(streamPathParts.length, segPathParts.length); i++) {
+            if (streamPathParts[i] === segPathParts[i]) {
+              shared++;
+            } else {
+              break;
+            }
+          }
+
+          // Require at least 1 shared path segment
+          if (shared > bestMatchLength) {
+            bestMatchLength = shared;
+            bestMatch = stream;
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      return bestMatch;
+    } catch {
+      return null;
+    }
+  }
+
   // Auto-fetch and parse manifest when a stream is detected
   async function autoFetchManifest(stream: StreamInfo): Promise<void> {
     // Only fetch for HLS and DASH streams
@@ -725,6 +890,92 @@ export default defineBackground(() => {
       }
     } catch (error) {
       console.warn('[PlaybackLab] Auto-fetch manifest error:', error);
+    }
+  }
+
+  // Fetch and parse ad content
+  async function fetchAdContent(
+    url: string,
+    customHeaders?: Record<string, string>
+  ): Promise<{ success: boolean; content?: string; parsed?: unknown; error?: string }> {
+    try {
+      const headers: HeadersInit = {
+        Accept: 'application/xml, text/xml, */*',
+        ...customHeaders,
+      };
+
+      const response = await fetch(url, { headers });
+
+      if (!response.ok) {
+        return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+
+      const content = await response.text();
+
+      // Try to parse VAST/VMAP
+      const parser = await getVastParser();
+      if (parser.supports(content)) {
+        const parsed = await parser.parse(content, url);
+        return { success: true, content, parsed };
+      }
+
+      return { success: true, content };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Auto-fetch and parse VAST/VMAP when ad is detected
+  async function autoFetchAdContent(ad: DetectedAd): Promise<void> {
+    try {
+      console.log('[PlaybackLab] Auto-fetching ad content:', ad.url);
+
+      const result = await fetchAdContent(ad.url, ad.requestHeaders);
+
+      if (!result.success) {
+        console.warn('[PlaybackLab] Ad fetch failed:', result.error);
+        // Send error to panel
+        chrome.runtime.sendMessage({
+          type: 'AD_ERROR',
+          payload: {
+            adId: ad.id,
+            tabId: ad.tabId,
+            error: result.error,
+          },
+        }).catch(() => {});
+        return;
+      }
+
+      if (result.parsed) {
+        console.log('[PlaybackLab] Ad parsed successfully:', ad.format);
+
+        // Update the stored ad
+        const ads = tabAds.get(ad.tabId);
+        if (ads) {
+          const index = ads.findIndex(a => a.id === ad.id);
+          if (index !== -1) {
+            ads[index] = {
+              ...ads[index],
+              ...(result.parsed as object),
+              rawXml: result.content,
+              isLoading: false,
+            };
+          }
+        }
+
+        // Send parsed ad to DevTools panel
+        chrome.runtime.sendMessage({
+          type: 'AD_PARSED',
+          payload: {
+            adId: ad.id,
+            tabId: ad.tabId,
+            ...result.parsed,
+            rawXml: result.content,
+          },
+        }).catch(() => {});
+      }
+    } catch (error) {
+      console.warn('[PlaybackLab] Auto-fetch ad error:', error);
     }
   }
 

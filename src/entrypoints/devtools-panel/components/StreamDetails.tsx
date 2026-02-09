@@ -9,7 +9,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { DetectedStream } from '../../../store';
-import { useStore } from '../../../store';
+import { useStore, useAdsCount } from '../../../store';
+import { AdsTab } from './AdsTab';
 import { formatDistanceToNow } from 'date-fns';
 import { safeUpperCase, typeToClassName, formatBitrate, formatDuration, getFilenameFromUrl } from '../../../shared/utils/stringUtils';
 import { copyToClipboard, generateCurlCommand } from '../../../shared/utils/copyAsCurl';
@@ -30,7 +31,7 @@ interface StreamDetailsProps {
   stream: DetectedStream | null;
 }
 
-type DetailTab = 'overview' | 'manifest' | 'payload' | 'drm' | 'errors';
+type DetailTab = 'overview' | 'ads' | 'manifest' | 'payload' | 'drm' | 'errors';
 
 // Hash function for URL-based storage keys
 function hashUrl(url: string): string {
@@ -160,6 +161,7 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
         >
           Overview
         </button>
+        <AdsTabButton activeTab={activeTab} onTabChange={handleTabChange} />
         <button
           className={`details-tab ${activeTab === 'manifest' ? 'active' : ''}`}
           onClick={() => handleTabChange('manifest')}
@@ -203,6 +205,7 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
         )}
 
         {activeTab === 'overview' && <OverviewTab stream={stream} />}
+        {activeTab === 'ads' && <AdsTab stream={stream} />}
         {activeTab === 'manifest' && <ManifestTab stream={stream} />}
         {activeTab === 'payload' && <PayloadTab stream={stream} />}
         {activeTab === 'drm' && <DrmTab stream={stream} />}
@@ -1719,6 +1722,21 @@ function ErrorsTab({ stream }: { stream: DetectedStream }) {
     <div className="errors-tab">
       <ErrorDisplay error={error} showSearch={!error} />
     </div>
+  );
+}
+
+// Ads Tab Button with count badge
+function AdsTabButton({ activeTab, onTabChange }: { activeTab: DetailTab; onTabChange: (tab: DetailTab) => void }) {
+  const adsCount = useAdsCount();
+
+  return (
+    <button
+      className={`details-tab ${activeTab === 'ads' ? 'active' : ''} ${adsCount > 0 ? 'has-content' : ''}`}
+      onClick={() => onTabChange('ads')}
+    >
+      Ads
+      {adsCount > 0 && <span className="tab-count-badge">{adsCount}</span>}
+    </button>
   );
 }
 

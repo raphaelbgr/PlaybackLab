@@ -66,6 +66,55 @@ npm run test       # Run tests
 npm run typecheck  # TypeScript check
 ```
 
+## Isolated Docker Mode (Claude Code)
+
+Run Claude Code in a sandboxed Docker container with filesystem isolation, full LAN access, and all permissions skipped.
+
+### Run Claude Code Isolated (This Project)
+
+```powershell
+docker run -it --rm `
+  --network host `
+  --user node `
+  -v "C:\Users\rbgnr\git\Stream-Lens:/workspace" `
+  -v "C:\Users\rbgnr\.claude:/home/node/.claude" `
+  -w /workspace `
+  -e "HOME=/home/node" `
+  node:22 `
+  npx -y @anthropic-ai/claude-code --dangerously-skip-permissions
+```
+
+**With initial prompt:**
+```powershell
+docker run -it --rm `
+  --network host `
+  --user node `
+  -v "C:\Users\rbgnr\git\Stream-Lens:/workspace" `
+  -v "C:\Users\rbgnr\.claude:/home/node/.claude" `
+  -w /workspace `
+  -e "HOME=/home/node" `
+  node:22 `
+  npx -y @anthropic-ai/claude-code --dangerously-skip-permissions -p "Run npm install and fix issues"
+```
+
+**What this provides:**
+| Feature | Description |
+|---------|-------------|
+| Filesystem Isolation | Only `/workspace` (this project) is accessible |
+| LAN Access | Full access via `--network host` |
+| OAuth Credentials | Mounted from `~/.claude` |
+| No Prompts | `--dangerously-skip-permissions` skips confirmations |
+| Sub-Claude Support | Can spawn sub-agents from within |
+
+**Network access from container:**
+| Target | IP |
+|--------|-----|
+| Mac Mini | `192.168.7.102` |
+| Linux VM | `172.24.174.17` |
+| LMStudio | `172.24.160.1:1234` |
+
+For generic command template, see: `C:\Users\rbgnr\CLAUDE.md` → "Run Claude Code in Isolated Docker Mode"
+
 ## Development Server Management
 
 **IMPORTANT:** The user manages the dev server. Do NOT start/stop the dev server yourself.

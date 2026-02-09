@@ -1387,7 +1387,7 @@ export default defineContentScript({
       }, true);
     });
 
-    window.addEventListener('unload', () => {
+    window.addEventListener('pagehide', () => {
       observer.disconnect();
       if (reportingIntervalId) {
         clearInterval(reportingIntervalId);

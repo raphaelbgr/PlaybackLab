@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { useStore, useStreamsList, useSelectedStream } from '../../store';
+import { useStore, useStreamsList, useSelectedStream, useAdsCount } from '../../store';
 import { StreamsPanel } from './components/StreamsPanel';
 import { TabBar } from './components/TabBar';
 import { NetworkInspector } from './components/NetworkInspector';
@@ -16,6 +16,7 @@ import { useKeyboardShortcuts } from '../../shared/hooks/useKeyboardShortcuts';
 import { generateCurlCommand, copyToClipboard } from '../../shared/utils/copyAsCurl';
 import type { StreamInfo } from '../../core/interfaces/IStreamDetector';
 import type { ParsedManifest } from '../../core/interfaces/IManifestParser';
+import type { DetectedAd, VastParseResult } from '../../core/interfaces/IAdDetector';
 
 type TabId = 'streams' | 'network' | 'export';
 
@@ -29,9 +30,10 @@ export function App() {
 }
 
 function AppContent() {
-  const { addStream, clearAll, activeTab, setActiveTab, updateAllPlaybackStates, updateManifest, selectStreamByUrl, selectStream } = useStore();
+  const { addStream, clearAll, activeTab, setActiveTab, updateAllPlaybackStates, updateManifest, selectStreamByUrl, selectStream, incrementSegmentCount, addAd, updateAdParsedContent, setAdError, clearAds } = useStore();
   const streams = useStreamsList();
   const selectedStream = useSelectedStream();
+  const adsCount = useAdsCount();
   const [currentTab, setCurrentTab] = useState<TabId>(activeTab as TabId);
   const { showToast } = useToast();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -55,7 +57,19 @@ function AppContent() {
       videoIndex: number;
     }
 
-    const handleMessage = (message: { type: string; payload?: StreamInfo | { tabId: number; streams: StreamInfo[] } | ManifestLoadedPayload | SelectStreamPayload }) => {
+    interface AdParsedPayload extends VastParseResult {
+      adId: string;
+      tabId: number;
+      rawXml: string;
+    }
+
+    interface AdErrorPayload {
+      adId: string;
+      tabId: number;
+      error: string;
+    }
+
+    const handleMessage = (message: { type: string; payload?: StreamInfo | { tabId: number; streams: StreamInfo[] } | ManifestLoadedPayload | SelectStreamPayload | DetectedAd | AdParsedPayload | AdErrorPayload | { parentStreamId: string; segmentUrl: string } }) => {
       if (message.type === 'STREAM_DETECTED' && message.payload) {
         const stream = message.payload as StreamInfo;
         // Only add streams from the inspected tab
@@ -72,6 +86,9 @@ function AppContent() {
             showToast('success', `New ${streamType} stream detected`);
           }
         }
+      } else if (message.type === 'SEGMENT_DETECTED' && message.payload) {
+        const { parentStreamId, segmentUrl } = message.payload as { parentStreamId: string; segmentUrl: string };
+        incrementSegmentCount(parentStreamId, segmentUrl);
       } else if (message.type === 'MANIFEST_LOADED' && message.payload) {
         const { streamId, tabId, manifest } = message.payload as ManifestLoadedPayload;
         // Only update manifests from the inspected tab
@@ -140,6 +157,27 @@ function AppContent() {
         if (selected) {
           setCurrentTab('streams');
         }
+      } else if (message.type === 'AD_DETECTED' && message.payload) {
+        const ad = message.payload as DetectedAd;
+        // Only add ads from the inspected tab
+        if (ad.tabId === inspectedTabId) {
+          addAd(ad);
+          // Show toast for new ads (subtle notification)
+          const sourceLabel = ad.source === 'ima' ? 'IMA' : ad.source === 'freewheel' ? 'FreeWheel' : 'Ad';
+          showToast('info', `${sourceLabel} ${ad.format.toUpperCase()} detected`);
+        }
+      } else if (message.type === 'AD_PARSED' && message.payload) {
+        const { adId, tabId, ...parsed } = message.payload as AdParsedPayload;
+        // Only update ads from the inspected tab
+        if (tabId === inspectedTabId) {
+          updateAdParsedContent(adId, parsed);
+        }
+      } else if (message.type === 'AD_ERROR' && message.payload) {
+        const { adId, tabId, error } = message.payload as AdErrorPayload;
+        // Only update ads from the inspected tab
+        if (tabId === inspectedTabId) {
+          setAdError(adId, error);
+        }
       }
     };
 
@@ -155,6 +193,15 @@ function AppContent() {
       }
     });
 
+    // Request existing ads for this tab
+    chrome.runtime.sendMessage({ type: 'GET_ADS', tabId: inspectedTabId }, (response) => {
+      if (response?.ads) {
+        response.ads
+          .filter((ad: DetectedAd) => ad.tabId === inspectedTabId)
+          .forEach((ad: DetectedAd) => addAd(ad));
+      }
+    });
+
     // Check if overlays are already enabled on page (e.g., from previous panel session)
     chrome.runtime.sendMessage({ type: 'GET_VIDEO_OVERLAY_STATUS', tabId: inspectedTabId }, (response) => {
       if (response?.enabled) {
@@ -165,12 +212,13 @@ function AppContent() {
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };
-  }, [addStream, updateManifest, updateAllPlaybackStates, selectStream, selectStreamByUrl, showToast]);
+  }, [addStream, updateManifest, updateAllPlaybackStates, selectStream, selectStreamByUrl, showToast, addAd, updateAdParsedContent, setAdError]);
 
   const handleClearAll = () => {
     const tabId = chrome.devtools.inspectedWindow.tabId;
     chrome.runtime.sendMessage({ type: 'CLEAR_TAB', tabId });
     clearAll();
+    clearAds();
   };
 
   // Toggle video overlays on page
@@ -246,7 +294,8 @@ function AppContent() {
         <div className="header-left">
           <h1 className="title">PlaybackLab</h1>
           <span className="stream-count">
-            {streams.length} stream{streams.length !== 1 ? 's' : ''} detected
+            {streams.length} stream{streams.length !== 1 ? 's' : ''}
+            {adsCount > 0 && <> &middot; {adsCount} ad{adsCount !== 1 ? 's' : ''}</>}
           </span>
         </div>
         <div className="header-right">

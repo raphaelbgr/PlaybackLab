@@ -125,37 +125,6 @@ export function StreamsInputBar() {
     }
   };
 
-  // Toggle auto-detection
-  const toggleAutoDetection = () => {
-    const tabId = chrome.devtools.inspectedWindow.tabId;
-    const newState = !autoDetectEnabled;
-
-    chrome.runtime.sendMessage(
-      { type: newState ? 'ENABLE_AUTO_DETECTION' : 'DISABLE_AUTO_DETECTION', tabId },
-      () => {
-        setAutoDetectEnabled(newState);
-        if (newState) {
-          showToast('info', 'Auto-detection enabled. Refresh the page to detect streams.');
-        } else {
-          showToast('info', 'Auto-detection disabled');
-        }
-      }
-    );
-  };
-
-  // Toggle filter ads
-  const toggleFilterAds = () => {
-    const tabId = chrome.devtools.inspectedWindow.tabId;
-    const newState = !filterAds;
-
-    chrome.runtime.sendMessage(
-      { type: 'SET_FILTER_ADS', tabId, filterAds: newState },
-      () => {
-        setFilterAds(newState);
-      }
-    );
-  };
-
   // Scan page for streams
   const handleScan = async () => {
     setIsScanning(true);
@@ -325,29 +294,24 @@ export function StreamsInputBar() {
 
   return (
     <div className="stream-input-bar">
-      {/* Row 1: URL Input */}
       <div className="input-row">
         <input
           type="text"
           className="url-field"
-          placeholder="Enter HLS or DASH stream URL..."
+          placeholder="Paste stream URL (.m3u8 / .mpd)..."
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isLoading || isScanning}
         />
-      </div>
-
-      {/* Row 2: Action Buttons */}
-      <div className="input-row input-actions">
         <button
           className="btn btn-primary"
           onClick={handleLoad}
           disabled={isLoading || isScanning || !url.trim()}
+          title="Load stream URL"
         >
-          {isLoading ? 'Loading...' : 'Load'}
+          {isLoading ? '...' : 'Load'}
         </button>
-
         <button
           className="btn btn-scan"
           onClick={handleScan}
@@ -355,46 +319,11 @@ export function StreamsInputBar() {
           title="Scan this page for stream URLs"
         >
           {isScanning ? (
-            <>
-              <span className="scan-spinner"></span>
-              Scanning...
-            </>
+            <span className="scan-spinner"></span>
           ) : (
-            <>
-              <span className="scan-icon">🔍</span>
-              Scan Page
-            </>
+            <span className="scan-icon">🔍</span>
           )}
         </button>
-      </div>
-
-      {/* Row 3: Toggle Options */}
-      <div className="input-row input-toggles">
-        <label
-          className={`toggle-option ${autoDetectEnabled ? 'active' : ''}`}
-          title="Automatically detect streams from network requests (requires page refresh)"
-        >
-          <input
-            type="checkbox"
-            checked={autoDetectEnabled}
-            onChange={toggleAutoDetection}
-          />
-          <span className="toggle-check"></span>
-          <span className="toggle-label">Auto-detect</span>
-        </label>
-
-        <label
-          className={`toggle-option ${filterAds ? 'active' : ''}`}
-          title="Filter out ad-related streams (Google Ads, IMA SDK, etc.)"
-        >
-          <input
-            type="checkbox"
-            checked={filterAds}
-            onChange={toggleFilterAds}
-          />
-          <span className="toggle-check"></span>
-          <span className="toggle-label">Filter Ads</span>
-        </label>
       </div>
     </div>
   );

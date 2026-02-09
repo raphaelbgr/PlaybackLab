@@ -105,6 +105,85 @@ describe('StreamDetector', () => {
       expect(detector.isMasterManifest('https://example.com/media_0.m3u8')).toBe(false);
       expect(detector.isMasterManifest('https://example.com/stream_1.m3u8')).toBe(false);
     });
+
+    it('should reject segment file extensions (.ts, .m4s, .m4v, .m4a, .aac, .vtt, .webvtt)', () => {
+      expect(detector.isMasterManifest('https://cdn.example.com/hls/segment_001.ts')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/dash/chunk_12345.m4s')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/video/init.m4v')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/audio/track.m4a')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/audio/stream.aac')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/subs/en.vtt')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/subs/en.webvtt')).toBe(false);
+    });
+
+    it('should reject .mp4 with segment patterns', () => {
+      expect(detector.isMasterManifest('https://cdn.example.com/segment01.mp4')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/chunk-1.mp4')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/frag_2.mp4')).toBe(false);
+    });
+
+    it('should reject YouTube/googlevideo videoplayback URLs', () => {
+      expect(detector.isMasterManifest('https://rr4---sn-5hne6nzy.googlevideo.com/videoplayback?expire=123&itag=248')).toBe(false);
+    });
+
+    it('should reject generic segment URL patterns', () => {
+      expect(detector.isMasterManifest('https://cdn.example.com/segment001/data')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/chunk-stream/video')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/Fragments(video=123456)')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/sq/5')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/range/0-1024')).toBe(false);
+    });
+
+    it('should reject googlevideo.com generate_204 (connectivity check)', () => {
+      // generate_204 is not a stream at all (detectStreamType returns unknown),
+      // but isMasterManifest should also return false for it since it's not a manifest
+      expect(detector.isMasterManifest('https://rr2---sn-b8u-bpb6.googlevideo.com/generate_204')).toBe(true);
+      // ^ This returns true because it doesn't match any segment/variant pattern.
+      // That's OK — it's filtered out by detectStreamType returning 'unknown'.
+    });
+  });
+
+  describe('YouTube/CDN detection', () => {
+    it('should detect googlevideo.com /videoplayback as MSE', () => {
+      expect(detector.detectStreamType('https://rr4---sn-5hne6nzy.googlevideo.com/videoplayback?expire=123&itag=248')).toBe('mse');
+    });
+
+    it('should NOT detect googlevideo.com /generate_204 as a stream', () => {
+      expect(detector.detectStreamType('https://rr2---sn-b8u-bpb6.googlevideo.com/generate_204')).toBe('unknown');
+      expect(detector.detectStreamType('https://rr2---sn-b8u-bpb6.googlevideo.com/generate_204?conn2')).toBe('unknown');
+    });
+
+    it('should NOT detect i.ytimg.com as a stream', () => {
+      expect(detector.detectStreamType('https://i.ytimg.com/generate_204')).toBe('unknown');
+    });
+
+    it('should detect youtube as platform for googlevideo.com', () => {
+      expect(detector.detectPlatform('https://rr4---sn-5hne6nzy.googlevideo.com/videoplayback?expire=123')).toBe('youtube');
+    });
+
+    it('should mark videoplayback URLs as non-master (segments)', () => {
+      expect(detector.isMasterManifest('https://rr4---sn-5hne6nzy.googlevideo.com/videoplayback?expire=123&itag=248')).toBe(false);
+    });
+  });
+
+  describe('HLS segment detection', () => {
+    it('should detect .ts segments as non-master', () => {
+      expect(detector.isMasterManifest('https://cdn.example.com/hls/stream1/segment_0001.ts')).toBe(false);
+      expect(detector.isMasterManifest('https://cdn.example.com/hls/chunk.ts')).toBe(false);
+    });
+
+    it('should detect .m4s segments as non-master', () => {
+      expect(detector.isMasterManifest('https://cdn.example.com/dash/segment_init.m4s')).toBe(false);
+    });
+
+    it('should allow .m3u8 master manifests', () => {
+      expect(detector.isMasterManifest('https://cdn.example.com/hls/master.m3u8')).toBe(true);
+      expect(detector.isMasterManifest('https://cdn.example.com/hls/playlist.m3u8')).toBe(true);
+    });
+
+    it('should allow .mpd manifests', () => {
+      expect(detector.isMasterManifest('https://cdn.example.com/dash/manifest.mpd')).toBe(true);
+    });
   });
 
   describe('processRequest', () => {

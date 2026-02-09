@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import type { StreamInfo, PlaybackState } from '../core/interfaces/IStreamDetector';
 import type { ParsedManifest } from '../core/interfaces/IManifestParser';
+import type { DetectedAd, VastParseResult } from '../core/interfaces/IAdDetector';
 import { urlsMatch } from '../shared/utils/stringUtils';
 
 export interface PlaybackUpdate {
@@ -21,6 +22,8 @@ export interface DetectedStream {
   manifest?: ParsedManifest;
   isLoading: boolean;
   error?: string;
+  segmentCount: number;
+  lastSegmentUrl?: string;
 }
 
 export interface AppState {
@@ -28,29 +31,47 @@ export interface AppState {
   streams: Map<string, DetectedStream>;
   selectedStreamId: string | null;
 
+  // Ads
+  ads: Map<string, DetectedAd>;
+  selectedAdId: string | null;
+
   // UI State
   activeTab: 'streams' | 'network' | 'export';
   isPanelExpanded: boolean;
 
-  // Actions
+  // Stream Actions
   addStream: (stream: StreamInfo) => void;
   removeStream: (id: string) => void;
   selectStream: (id: string | null) => void;
   updateManifest: (id: string, manifest: ParsedManifest) => void;
   setStreamLoading: (id: string, loading: boolean) => void;
   setStreamError: (id: string, error: string) => void;
+  updateStreamPlayback: (streamUrl: string, update: PlaybackUpdate) => void;
+  updateAllPlaybackStates: (streams: StreamInfo[]) => void;
+  incrementSegmentCount: (streamId: string, segmentUrl: string) => void;
+  selectStreamByUrl: (url: string) => boolean;
+
+  // Ad Actions
+  addAd: (ad: DetectedAd) => void;
+  removeAd: (id: string) => void;
+  selectAd: (id: string | null) => void;
+  updateAdParsedContent: (id: string, parsed: VastParseResult & { rawXml: string }) => void;
+  setAdLoading: (id: string, loading: boolean) => void;
+  setAdError: (id: string, error: string) => void;
+  clearAds: () => void;
+
+  // UI Actions
   setActiveTab: (tab: AppState['activeTab']) => void;
   togglePanel: () => void;
   clearAll: () => void;
-  updateStreamPlayback: (streamUrl: string, update: PlaybackUpdate) => void;
-  updateAllPlaybackStates: (streams: StreamInfo[]) => void;
-  selectStreamByUrl: (url: string) => boolean;
 }
 
 export const useStore = create<AppState>((set) => ({
   // Initial state
   streams: new Map(),
   selectedStreamId: null,
+  ads: new Map(),
+  selectedAdId: null,
   activeTab: 'streams',
   isPanelExpanded: true,
 
@@ -75,6 +96,7 @@ export const useStore = create<AppState>((set) => ({
       newStreams.set(stream.id, {
         info: stream,
         isLoading: false,
+        segmentCount: 0,
       });
       return {
         streams: newStreams,
@@ -132,6 +154,79 @@ export const useStore = create<AppState>((set) => ({
     set({
       streams: new Map(),
       selectedStreamId: null,
+      ads: new Map(),
+      selectedAdId: null,
+    }),
+
+  // Ad Actions
+  addAd: (ad) =>
+    set((state) => {
+      // Check if ad with same URL already exists (dedupe)
+      for (const [existingId, existingAd] of state.ads) {
+        if (existingAd.url === ad.url) {
+          // Update existing ad instead of adding duplicate
+          const newAds = new Map(state.ads);
+          newAds.set(existingId, { ...existingAd, ...ad, id: existingId });
+          return { ads: newAds };
+        }
+      }
+
+      // New ad - add it
+      const newAds = new Map(state.ads);
+      newAds.set(ad.id, ad);
+      return { ads: newAds };
+    }),
+
+  removeAd: (id) =>
+    set((state) => {
+      const newAds = new Map(state.ads);
+      newAds.delete(id);
+      return {
+        ads: newAds,
+        selectedAdId:
+          state.selectedAdId === id
+            ? newAds.keys().next().value ?? null
+            : state.selectedAdId,
+      };
+    }),
+
+  selectAd: (id) => set({ selectedAdId: id }),
+
+  updateAdParsedContent: (id, parsed) =>
+    set((state) => {
+      const ad = state.ads.get(id);
+      if (!ad) return state;
+      const newAds = new Map(state.ads);
+      newAds.set(id, {
+        ...ad,
+        ...parsed,
+        isLoading: false,
+      });
+      return { ads: newAds };
+    }),
+
+  setAdLoading: (id, loading) =>
+    set((state) => {
+      const ad = state.ads.get(id);
+      if (!ad) return state;
+      const newAds = new Map(state.ads);
+      newAds.set(id, { ...ad, isLoading: loading });
+      return { ads: newAds };
+    }),
+
+  setAdError: (id, error) =>
+    set((state) => {
+      const ad = state.ads.get(id);
+      if (!ad) return state;
+      const newAds = new Map(state.ads);
+      newAds.set(id, { ...ad, error, isLoading: false });
+      return { ads: newAds };
+    }),
+
+  clearAds: () =>
+    set({
+      ads: new Map(),
+      selectedAdId: null,
     }),
 
   updateStreamPlayback: (streamUrl, update) =>
@@ -188,6 +283,19 @@ export const useStore = create<AppState>((set) => ({
       return updated ? { streams: newStreams } : state;
     }),
 
+  incrementSegmentCount: (streamId, segmentUrl) =>
+    set((state) => {
+      const stream = state.streams.get(streamId);
+      if (!stream) return state;
+      const newStreams = new Map(state.streams);
+      newStreams.set(streamId, {
+        ...stream,
+        segmentCount: stream.segmentCount + 1,
+        lastSegmentUrl: segmentUrl,
+      });
+      return { streams: newStreams };
+    }),
+
   selectStreamByUrl: (url) => {
     const state = useStore.getState();
     for (const [id, stream] of state.streams) {
@@ -208,3 +316,15 @@ export const useSelectedStream = () =>
 
 export const useStreamsList = () =>
   useStore((state) => Array.from(state.streams.values()));
+
+// Ad selectors
+export const useSelectedAd = () =>
+  useStore((state) =>
+    state.selectedAdId ? state.ads.get(state.selectedAdId) : null
+  );
+
+export const useAdsList = () =>
+  useStore((state) => Array.from(state.ads.values()));
+
+export const useAdsCount = () =>
+  useStore((state) => state.ads.size);
