@@ -135,11 +135,9 @@ describe('StreamDetector', () => {
     });
 
     it('should reject googlevideo.com generate_204 (connectivity check)', () => {
-      // generate_204 is not a stream at all (detectStreamType returns unknown),
-      // but isMasterManifest should also return false for it since it's not a manifest
-      expect(detector.isMasterManifest('https://rr2---sn-b8u-bpb6.googlevideo.com/generate_204')).toBe(true);
-      // ^ This returns true because it doesn't match any segment/variant pattern.
-      // That's OK — it's filtered out by detectStreamType returning 'unknown'.
+      // generate_204 has no manifest extension (.m3u8/.mpd), so isMasterManifest
+      // correctly returns false — it's not a manifest at all.
+      expect(detector.isMasterManifest('https://rr2---sn-b8u-bpb6.googlevideo.com/generate_204')).toBe(false);
     });
   });
 

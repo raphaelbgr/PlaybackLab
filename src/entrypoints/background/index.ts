@@ -158,12 +158,62 @@ export default defineBackground(() => {
     []
   );
 
-  // Listen for response headers to capture size and MIME type
+  // Listen for response headers to:
+  // 1. Capture size and MIME type for network inspector
+  // 2. Detect streams via Content-Type (universal catch-all for any CDN worldwide)
   chrome.webRequest.onHeadersReceived.addListener(
     (details) => {
+      // Extract Content-Type header (needed for both network capture and stream detection)
+      const contentTypeHeader = details.responseHeaders?.find(
+        h => h.name.toLowerCase() === 'content-type'
+      );
+      const contentTypeValue = contentTypeHeader?.value;
+
+      // --- Content-Type based stream detection (universal catch-all) ---
+      // This catches streams from ANY CDN worldwide, even without standard file extensions.
+      // Only runs if auto-detection is enabled and URL wasn't already caught by extension matching.
+      if (autoDetectionEnabled.get(details.tabId) && contentTypeValue) {
+        const shouldFilter = filterAdsEnabled.get(details.tabId) !== false;
+        streamDetector.setFilterAds(shouldFilter);
+
+        const result = streamDetector.processResponseHeaders(
+          details.url,
+          contentTypeValue,
+          details.tabId,
+          details.frameId,
+          details.requestId,
+          details.initiator ?? undefined,
+        );
+
+        if (result.detected && result.stream) {
+          const stream = result.stream;
+          if (stream.isMaster) {
+            addMasterStream(stream);
+          } else {
+            const parentStream = findParentStream(stream.tabId, stream.url);
+            if (parentStream) {
+              chrome.runtime.sendMessage({
+                type: 'SEGMENT_DETECTED',
+                payload: {
+                  parentStreamId: parentStream.id,
+                  segmentUrl: stream.url,
+                },
+              }).catch(() => {});
+            } else {
+              const platform = streamDetector.detectPlatform(stream.url);
+              if (platform) {
+                console.log('[PlaybackLab] Creating synthetic parent for', platform, 'segment (via Content-Type)');
+                stream.isMaster = true;
+                addMasterStream(stream);
+              }
+            }
+          }
+        }
+      }
+
+      // --- Network capture (size + MIME type storage) ---
       if (!networkCaptureEnabled.has(details.tabId)) return;
 
-      // Only process streaming-related requests
       const url = details.url.toLowerCase();
       if (!isStreamingRequest(url)) return;
 
@@ -175,12 +225,8 @@ export default defineBackground(() => {
         responseSizes.set(details.requestId, parseInt(contentLength.value, 10) || 0);
       }
 
-      // Extract Content-Type header
-      const contentType = details.responseHeaders?.find(
-        h => h.name.toLowerCase() === 'content-type'
-      );
-      if (contentType?.value) {
-        responseMimeTypes.set(details.requestId, contentType.value);
+      if (contentTypeValue) {
+        responseMimeTypes.set(details.requestId, contentTypeValue);
       }
     },
     { urls: ['<all_urls>'] },
