@@ -130,7 +130,7 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
         <div className="details-title">
           <span className={`type-badge ${typeToClassName(info.type)}`}>{safeUpperCase(info.type)}</span>
           <span className="details-filename">{getFilenameFromUrl(info.url)}</span>
-          {info.isActive && <span className="live-badge">LIVE</span>}
+          {info.isActive && <span className="active-badge">{info.playbackState === 'playing' ? '▶ PLAYING' : 'ACTIVE'}</span>}
         </div>
 
         {/* Collapsible URL */}
@@ -217,42 +217,26 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
 
 function OverviewTab({ stream }: { stream: DetectedStream }) {
   const { manifest, info, isLoading } = stream;
-  const { setStreamLoading, updateManifest, setStreamError } = useStore();
+  const { setStreamLoading, setStreamError } = useStore();
 
-  // Auto-fetch manifest if not loaded
+  // Request manifest from background if not loaded
+  // The background caches manifests and prevents concurrent fetches, eliminating race conditions
   useEffect(() => {
     if (!manifest && !isLoading && !stream.error) {
-      // Trigger manifest fetch
-      setStreamLoading(info.id, true);
+      // Only fetch manifests for HLS/DASH — other types have no manifest to parse
+      if (info.type !== 'hls' && info.type !== 'dash') {
+        setStreamError(info.id, 'No manifest — this is a raw media stream (segments only).');
+        return;
+      }
 
-      fetch(info.url, {
-        headers: info.requestHeaders || {},
-      })
-        .then(res => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.text();
-        })
-        .then(async (text) => {
-          // Dynamically import parser based on type
-          if (info.type === 'hls') {
-            const { HlsManifestParser } = await import('../../../core/services/HlsManifestParser');
-            const parser = new HlsManifestParser();
-            const parsed = await parser.parse(text, info.url);
-            updateManifest(info.id, parsed);
-          } else if (info.type === 'dash') {
-            const { DashManifestParser } = await import('../../../core/services/DashManifestParser');
-            const parser = new DashManifestParser();
-            const parsed = await parser.parse(text, info.url);
-            updateManifest(info.id, parsed);
-          } else {
-            setStreamLoading(info.id, false);
-          }
-        })
-        .catch((err) => {
-          setStreamError(info.id, err.message || 'Failed to load manifest');
-        });
+      // Ask background to fetch/return cached manifest (no direct fetch from panel)
+      setStreamLoading(info.id, true);
+      chrome.runtime.sendMessage({
+        type: 'REFETCH_MANIFEST',
+        payload: { streamId: info.id, tabId: info.tabId },
+      });
     }
-  }, [manifest, isLoading, stream.error, info.id, info.url, info.type, info.requestHeaders]);
+  }, [manifest, isLoading, stream.error, info.id, info.url, info.type, info.tabId]);
 
   // Extract origin domain from URL
   const getOriginDomain = (url: string): string => {

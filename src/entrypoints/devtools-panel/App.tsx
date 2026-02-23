@@ -30,7 +30,7 @@ export function App() {
 }
 
 function AppContent() {
-  const { addStream, clearAll, activeTab, setActiveTab, updateAllPlaybackStates, updateManifest, selectStreamByUrl, selectStream, incrementSegmentCount, addAd, updateAdParsedContent, setAdError, clearAds } = useStore();
+  const { addStream, clearAll, activeTab, setActiveTab, updateAllPlaybackStates, updateManifest, setStreamError, selectStreamByUrl, selectStream, incrementSegmentCount, addAd, updateAdParsedContent, setAdError, clearAds } = useStore();
   const streams = useStreamsList();
   const selectedStream = useSelectedStream();
   const adsCount = useAdsCount();
@@ -94,6 +94,11 @@ function AppContent() {
         // Only update manifests from the inspected tab
         if (tabId === inspectedTabId) {
           updateManifest(streamId, manifest);
+        }
+      } else if (message.type === 'MANIFEST_ERROR' && message.payload) {
+        const { streamId, tabId, error } = message.payload as { streamId: string; tabId: number; error: string };
+        if (tabId === inspectedTabId) {
+          setStreamError(streamId, error);
         }
       } else if (message.type === 'PLAYBACK_STATE_UPDATED' && message.payload) {
         const { tabId, streams: updatedStreams } = message.payload as { tabId: number; streams: StreamInfo[] };
@@ -183,13 +188,26 @@ function AppContent() {
 
     chrome.runtime.onMessage.addListener(handleMessage);
 
-    // Request existing streams for this tab only
+    // Request existing streams for this tab only (includes cached manifests/errors)
     chrome.runtime.sendMessage({ type: 'GET_STREAMS', tabId: inspectedTabId }, (response) => {
       if (response?.streams) {
         // Filter to ensure only streams from this tab (redundant but safe)
         response.streams
           .filter((stream: StreamInfo) => stream.tabId === inspectedTabId)
           .forEach((stream: StreamInfo) => addStream(stream));
+
+        // Apply cached manifests from background (prevents OverviewTab from double-fetching)
+        if (response.manifests) {
+          for (const [id, manifest] of Object.entries(response.manifests)) {
+            updateManifest(id, manifest as ParsedManifest);
+          }
+        }
+        // Apply cached errors from background
+        if (response.errors) {
+          for (const [id, error] of Object.entries(response.errors)) {
+            setStreamError(id, error as string);
+          }
+        }
       }
     });
 

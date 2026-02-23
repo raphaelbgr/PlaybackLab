@@ -83,6 +83,15 @@ export default defineBackground(() => {
   // Store detected ads per tab (always enabled)
   const tabAds = new Map<number, DetectedAd[]>();
 
+  // Manifest cache: store parsed manifests by streamId (avoids double-fetch with panel)
+  const manifestCache = new Map<string, ParsedManifest>();
+
+  // Manifest error cache: store fetch errors by streamId
+  const manifestErrorCache = new Map<string, string>();
+
+  // Track in-flight manifest fetches to prevent concurrent requests for the same stream
+  const fetchingManifests = new Set<string>();
+
   // Listen for web requests to detect streams
   chrome.webRequest.onBeforeRequest.addListener(
     (details) => {
@@ -91,11 +100,10 @@ export default defineBackground(() => {
         return;
       }
 
-      // Check if filter ads is enabled (default: true)
+      // Pass filterAds per-call to avoid shared state across tabs
       const shouldFilter = filterAdsEnabled.get(details.tabId) !== false;
-      streamDetector.setFilterAds(shouldFilter);
 
-      const result = streamDetector.processRequest(details);
+      const result = streamDetector.processRequest(details, { filterAds: shouldFilter });
 
       if (result.detected && result.stream) {
         const stream = result.stream;
@@ -174,7 +182,6 @@ export default defineBackground(() => {
       // Only runs if auto-detection is enabled and URL wasn't already caught by extension matching.
       if (autoDetectionEnabled.get(details.tabId) && contentTypeValue) {
         const shouldFilter = filterAdsEnabled.get(details.tabId) !== false;
-        streamDetector.setFilterAds(shouldFilter);
 
         const result = streamDetector.processResponseHeaders(
           details.url,
@@ -183,6 +190,7 @@ export default defineBackground(() => {
           details.frameId,
           details.requestId,
           details.initiator ?? undefined,
+          { filterAds: shouldFilter },
         );
 
         if (result.detected && result.stream) {
@@ -282,8 +290,21 @@ export default defineBackground(() => {
     { urls: ['<all_urls>'] }
   );
 
+  // Helper to clear manifest caches for all streams in a tab
+  function clearManifestCachesForTab(tabId: number): void {
+    const streams = tabStreams.get(tabId);
+    if (streams) {
+      for (const s of streams) {
+        manifestCache.delete(s.id);
+        manifestErrorCache.delete(s.id);
+        fetchingManifests.delete(s.id);
+      }
+    }
+  }
+
   // Clean up when tab closes
   chrome.tabs.onRemoved.addListener((tabId) => {
+    clearManifestCachesForTab(tabId);
     tabStreams.delete(tabId);
     tabNetworkRequests.delete(tabId);
     tabAds.delete(tabId);
@@ -299,6 +320,7 @@ export default defineBackground(() => {
   // Clean up when tab navigates
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'loading') {
+      clearManifestCachesForTab(tabId);
       tabStreams.delete(tabId);
       tabNetworkRequests.delete(tabId);
       tabAds.delete(tabId);
@@ -315,7 +337,16 @@ export default defineBackground(() => {
       case 'GET_STREAMS': {
         const tabId = message.tabId as number;
         const streams = tabStreams.get(tabId) || [];
-        sendResponse({ streams });
+        // Include cached manifests and errors so the panel doesn't re-fetch
+        const manifests: Record<string, ParsedManifest> = {};
+        const errors: Record<string, string> = {};
+        for (const s of streams) {
+          const m = manifestCache.get(s.id);
+          if (m) manifests[s.id] = m;
+          const e = manifestErrorCache.get(s.id);
+          if (e) errors[s.id] = e;
+        }
+        sendResponse({ streams, manifests, errors });
         return false;
       }
 
@@ -334,6 +365,20 @@ export default defineBackground(() => {
         return true;
       }
 
+      case 'REFETCH_MANIFEST': {
+        // Panel requests manifest — use cache or re-fetch via background (no double-fetch)
+        const { streamId: refetchId, tabId: refetchTabId } = message.payload as { streamId: string; tabId: number };
+        const tabStreamList = tabStreams.get(refetchTabId) || [];
+        const targetStream = tabStreamList.find(s => s.id === refetchId);
+        if (targetStream) {
+          // Clear any previous error to allow retry
+          manifestErrorCache.delete(refetchId);
+          autoFetchManifest(targetStream);
+        }
+        sendResponse({ success: true });
+        return false;
+      }
+
       case 'FETCH_MANIFEST': {
         const { url, headers } = message.payload as { url: string; headers?: Record<string, string> };
         fetchManifest(url, headers)
@@ -344,6 +389,7 @@ export default defineBackground(() => {
 
       case 'CLEAR_TAB': {
         const tabId = message.tabId as number;
+        clearManifestCachesForTab(tabId);
         tabStreams.delete(tabId);
         tabNetworkRequests.delete(tabId);
         activeVideoSources.delete(tabId);
@@ -885,15 +931,57 @@ export default defineBackground(() => {
     // Only fetch for HLS and DASH streams
     if (stream.type !== 'hls' && stream.type !== 'dash') return;
 
+    // Skip if already fetching this stream (prevents concurrent requests)
+    if (fetchingManifests.has(stream.id)) return;
+
+    // Skip if already cached
+    if (manifestCache.has(stream.id)) {
+      chrome.runtime.sendMessage({
+        type: 'MANIFEST_LOADED',
+        payload: {
+          streamId: stream.id,
+          streamUrl: stream.url,
+          tabId: stream.tabId,
+          manifest: manifestCache.get(stream.id),
+        },
+      }).catch(() => {});
+      return;
+    }
+    if (manifestErrorCache.has(stream.id)) {
+      chrome.runtime.sendMessage({
+        type: 'MANIFEST_ERROR',
+        payload: {
+          streamId: stream.id,
+          tabId: stream.tabId,
+          error: manifestErrorCache.get(stream.id),
+        },
+      }).catch(() => {});
+      return;
+    }
+
+    fetchingManifests.add(stream.id);
+
     try {
       console.log('[PlaybackLab] Auto-fetching manifest:', stream.url);
 
+      // Use AbortController for timeout (10 seconds)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
       const response = await fetch(stream.url, {
         headers: stream.requestHeaders || {},
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       if (!response.ok) {
+        const errorText = `HTTP ${response.status} — ${response.statusText || 'manifest unavailable'}`;
         console.warn('[PlaybackLab] Manifest fetch failed:', response.status);
+        manifestErrorCache.set(stream.id, errorText);
+        chrome.runtime.sendMessage({
+          type: 'MANIFEST_ERROR',
+          payload: { streamId: stream.id, tabId: stream.tabId, error: errorText },
+        }).catch(() => {});
         return;
       }
 
@@ -921,6 +1009,9 @@ export default defineBackground(() => {
           drm: manifest.drm?.length || 0,
         });
 
+        // Cache the manifest
+        manifestCache.set(stream.id, manifest);
+
         // Send parsed manifest to DevTools panel
         chrome.runtime.sendMessage({
           type: 'MANIFEST_LOADED',
@@ -930,12 +1021,21 @@ export default defineBackground(() => {
             tabId: stream.tabId,
             manifest,
           },
-        }).catch(() => {
-          // DevTools panel not open, ignore
-        });
+        }).catch(() => {});
       }
     } catch (error) {
-      console.warn('[PlaybackLab] Auto-fetch manifest error:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      const errorText = msg.includes('abort') || msg.includes('AbortError')
+        ? 'Timeout — manifest did not respond within 10 seconds'
+        : msg || 'Failed to fetch manifest';
+      console.warn('[PlaybackLab] Auto-fetch manifest error:', errorText);
+      manifestErrorCache.set(stream.id, errorText);
+      chrome.runtime.sendMessage({
+        type: 'MANIFEST_ERROR',
+        payload: { streamId: stream.id, tabId: stream.tabId, error: errorText },
+      }).catch(() => {});
+    } finally {
+      fetchingManifests.delete(stream.id);
     }
   }
 

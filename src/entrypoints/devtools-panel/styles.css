@@ -4105,13 +4105,14 @@ body {
   color: var(--text-primary);
 }
 
-.live-badge {
+.active-badge {
   font-size: 9px;
-  font-weight: 700;
-  background: var(--success);
-  color: #000;
+  font-weight: 600;
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--success);
   padding: 2px 6px;
   border-radius: 3px;
+  letter-spacing: 0.3px;
 }
 
 /* Collapsible URL Wrapper */
@@ -6257,6 +6258,10 @@ body {
   color: var(--text-secondary);
   text-align: center;
   padding: 0 16px;
+}
+
+.mini-player-overlay.not-previewable {
+  background: rgba(25, 25, 35, 0.95);
 }
 
 .mini-player-overlay.drm {

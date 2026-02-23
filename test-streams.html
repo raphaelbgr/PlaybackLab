@@ -163,20 +163,20 @@
       </div>
     </div>
 
-    <!-- 7. Bitmovin DASH Test -->
+    <!-- 7. Shaka Player DASH Test (Angel One) -->
     <div class="card">
       <div class="card-header">
-        <h3>Bitmovin Art of Motion (DASH)</h3>
+        <h3>Shaka Player Angel One (DASH)</h3>
         <span class="badge badge-dash">DASH</span>
       </div>
       <video id="dash3" controls muted playsinline></video>
       <div class="controls">
-        <button class="btn" onclick="loadDash('dash3', 'https://bitmovin-a.akamaihd.net/content/MI201109210084_1/mpds/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.mpd')">Load</button>
+        <button class="btn" onclick="loadDash('dash3', 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd')">Load</button>
         <span class="status" id="dash3-status">idle</span>
       </div>
       <div class="card-footer">
-        <a href="https://bitmovin-a.akamaihd.net/content/MI201109210084_1/mpds/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.mpd" target="_blank">bitmovin-a.akamaihd.net/.../f08e80da.mpd</a>
-        <br>Art of Motion, fMP4 segments, via Akamai — tests "bitmovin" platform detection
+        <a href="https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd" target="_blank">shaka-demo-assets/angel-one/dash.mpd</a>
+        <br>Angel One, fMP4 on-demand, subtitles, Google Cloud Storage — tests "gcloud" platform detection
       </div>
     </div>
 
@@ -303,7 +303,7 @@
       loadHls('hls4', 'https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8');
       loadDash('dash1', 'https://livesim2.dashif.org/livesim2/testpic_2s/Manifest.mpd');
       loadDash('dash2', 'https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd');
-      loadDash('dash3', 'https://bitmovin-a.akamaihd.net/content/MI201109210084_1/mpds/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.mpd');
+      loadDash('dash3', 'https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd');
     }
   </script>
 

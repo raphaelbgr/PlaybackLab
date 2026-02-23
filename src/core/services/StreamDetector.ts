@@ -339,8 +339,8 @@ export class StreamDetector implements IStreamDetector {
           hostname.endsWith('paramount.com') || hostname.endsWith('cbsivideo.com')) return 'paramount';
       // Peacock / NBC
       if (hostname.endsWith('peacocktv.com') || hostname.endsWith('nbcuni.com') || hostname.endsWith('nbcustr.com')) return 'peacock';
-      // Apple TV+
-      if (hostname.endsWith('apple.com') && hostname.includes('hls')) return 'apple';
+      // Apple TV+ / Apple CDN
+      if (hostname.endsWith('apple.com') && (hostname.includes('hls') || hostname.includes('streaming') || hostname.includes('devstreaming'))) return 'apple';
       if (hostname.endsWith('cdn-apple.com')) return 'apple';
       // Dailymotion
       if (hostname.endsWith('dmcdn.net') || hostname.endsWith('dailymotion.com') || hostname.endsWith('dm-event.net')) return 'dailymotion';
@@ -532,10 +532,19 @@ export class StreamDetector implements IStreamDetector {
     return 'standalone';
   }
 
-  processRequest(details: chrome.webRequest.WebRequestDetails): DetectionResult {
+  processRequest(details: chrome.webRequest.WebRequestDetails, options?: { filterAds?: boolean }): DetectionResult {
     const { url, tabId, frameId, initiator, requestId } = details;
 
-    if (!this.isStreamUrl(url)) {
+    if (!this.enabled) return { detected: false };
+
+    // Use per-call filterAds if provided — avoids shared mutable state across tabs
+    const shouldFilterAds = options?.filterAds ?? this.filterAds;
+
+    try {
+      const urlObj = new URL(url);
+      if (shouldFilterAds && isBlockedUrl(urlObj.hostname, urlObj.pathname)) return { detected: false };
+      if (!matchByExtension(urlObj.pathname) && !matchCdn(urlObj.hostname, urlObj.pathname)) return { detected: false };
+    } catch {
       return { detected: false };
     }
 
@@ -584,23 +593,26 @@ export class StreamDetector implements IStreamDetector {
     frameId: number,
     requestId: string,
     initiator?: string,
+    options?: { filterAds?: boolean },
   ): DetectionResult {
     if (!this.enabled) return { detected: false };
 
-    // Skip if already detected by URL-based matching
+    // Skip if already detected by URL-based matching (onBeforeRequest)
+    // Return false to prevent background from calling addMasterStream a second time
     const streamKey = `${tabId}-${url}`;
     if (this.detectedStreams.has(streamKey)) {
-      return { detected: true, stream: this.detectedStreams.get(streamKey) };
+      return { detected: false };
     }
 
     // Check Content-Type against known MIME types
     const fmt = matchByContentType(responseContentType);
     if (!fmt) return { detected: false };
 
-    // Apply ad filtering
+    // Apply ad filtering — use per-call option to avoid shared mutable state
+    const shouldFilterAds = options?.filterAds ?? this.filterAds;
     try {
       const urlObj = new URL(url);
-      if (this.filterAds && isBlockedUrl(urlObj.hostname, urlObj.pathname)) {
+      if (shouldFilterAds && isBlockedUrl(urlObj.hostname, urlObj.pathname)) {
         return { detected: false };
       }
     } catch {

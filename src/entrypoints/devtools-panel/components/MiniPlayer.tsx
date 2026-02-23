@@ -16,7 +16,7 @@ interface MiniPlayerProps {
   onError?: (error: string) => void;
 }
 
-type PlayerState = 'loading' | 'ready' | 'playing' | 'paused' | 'error' | 'drm-blocked';
+type PlayerState = 'loading' | 'checking' | 'ready' | 'playing' | 'paused' | 'error' | 'not-previewable' | 'drm-blocked';
 
 interface ClassifiedError {
   title: string;
@@ -87,11 +87,12 @@ function classifyPlaybackError(error: string, url?: string): ClassifiedError {
     };
   }
 
-  // 404 errors
-  if (lowerError.includes('404') || lowerError.includes('not found')) {
+  // 404 / unavailable errors
+  if (lowerError.includes('404') || lowerError.includes('not found') ||
+      lowerError.includes('not available') || lowerError.includes('unavailable')) {
     return {
-      title: 'Stream Not Found',
-      message: 'The stream URL returned 404. It may have been removed or expired.',
+      title: 'Stream Not Available',
+      message: 'The stream URL is no longer available. It may have been removed or expired.',
     };
   }
 
@@ -108,6 +109,128 @@ function classifyPlaybackError(error: string, url?: string): ClassifiedError {
     title: 'Playback Error',
     message: error,
   };
+}
+
+/**
+ * Quick URL-based assessment of whether a stream can be previewed.
+ * Returns null if previewable, or { title, message } if not.
+ */
+function assessPreviewability(
+  url: string,
+  type: MiniPlayerProps['type'],
+  hasDrm?: boolean,
+): ClassifiedError | null {
+  // DRM — never previewable
+  if (hasDrm) {
+    return { title: 'DRM Protected', message: 'DRM-protected content cannot be previewed in DevTools.' };
+  }
+
+  // MSE / unknown — can't be played outside the page
+  if (type === 'mse' || type === 'unknown' || !type) {
+    return { title: 'Not Previewable', message: 'MSE/raw streams can\'t be previewed externally. Use the page\'s native player.' };
+  }
+
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+
+    // Known DRM-only platforms (preview will always fail)
+    const drmPlatforms: [string, string][] = [
+      ['nflxvideo.net', 'Netflix'],
+      ['netflix.com', 'Netflix'],
+      ['disney-plus.net', 'Disney+'],
+      ['bamgrid.com', 'Disney+'],
+      ['dssott.com', 'Disney+'],
+      ['primevideo.com', 'Amazon Prime'],
+      ['aiv-cdn.net', 'Amazon Prime'],
+      ['peacocktv.com', 'Peacock'],
+      ['hbomaxcdn.com', 'HBO Max'],
+      ['max.com', 'Max'],
+    ];
+    for (const [domain, name] of drmPlatforms) {
+      if (hostname.endsWith(domain)) {
+        return { title: `${name} — DRM Protected`, message: `${name} streams require DRM decryption and can't be previewed.` };
+      }
+    }
+
+    // YouTube videoplayback — MSE segments, no manifest to play
+    if (hostname.endsWith('googlevideo.com') && url.includes('/videoplayback')) {
+      return { title: 'YouTube — Not Previewable', message: 'YouTube uses MSE with encrypted segments. Use the page player.' };
+    }
+
+    // Check for obviously expired token in URL
+    const urlObj = new URL(url);
+    const expireParam = urlObj.searchParams.get('expire') || urlObj.searchParams.get('exp') || urlObj.searchParams.get('expires');
+    if (expireParam) {
+      const expireTime = parseInt(expireParam, 10);
+      // Unix timestamp (seconds) — check if expired
+      if (expireTime > 0 && expireTime < 1e12 && expireTime < Date.now() / 1000) {
+        return { title: 'Token Expired', message: 'The stream URL token has expired. Reload the page to get a fresh URL.' };
+      }
+      // Millisecond timestamp
+      if (expireTime >= 1e12 && expireTime < Date.now()) {
+        return { title: 'Token Expired', message: 'The stream URL token has expired. Reload the page to get a fresh URL.' };
+      }
+    }
+  } catch {
+    // URL parse error — let it try anyway
+  }
+
+  return null; // Previewable (as far as we can tell)
+}
+
+/**
+ * Quick preflight fetch to check if the URL is reachable.
+ * Returns null if OK, or ClassifiedError if not.
+ */
+async function preflightCheck(url: string, headers?: Record<string, string>): Promise<ClassifiedError | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const fetchHeaders: HeadersInit = { Accept: '*/*' };
+    if (headers) {
+      for (const [key, value] of Object.entries(headers)) {
+        if (!['host', 'referer', 'origin', 'cookie'].includes(key.toLowerCase())) {
+          fetchHeaders[key] = value;
+        }
+      }
+    }
+
+    const response = await fetch(url, {
+      method: 'HEAD',
+      headers: fetchHeaders,
+      signal: controller.signal,
+      mode: 'cors',
+    });
+
+    if (response.status === 401) {
+      return { title: 'Authentication Required', message: 'This stream requires authentication. Try loading it in the page first.' };
+    }
+    if (response.status === 403) {
+      return { title: 'Access Denied', message: 'The server refused access. The URL may be expired or geo-restricted.' };
+    }
+    if (response.status === 404 || response.status === 410) {
+      return { title: 'Stream Not Found', message: 'The stream URL is no longer available (404). It may have been removed.' };
+    }
+    if (response.status >= 500) {
+      return { title: 'Server Error', message: `The server returned ${response.status}. The stream may be temporarily unavailable.` };
+    }
+
+    return null; // Reachable
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+
+    if (msg.includes('abort') || msg.includes('AbortError')) {
+      return { title: 'Timeout', message: 'The server did not respond within 5 seconds. The stream may be offline.' };
+    }
+
+    // CORS or network error — fetch failures in browser are opaque
+    // We can't distinguish CORS from network error, so let the player try
+    // (hls.js/dashjs may handle CORS differently than raw fetch)
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Persistence for collapsed state
@@ -228,23 +351,18 @@ export function MiniPlayer({ url, type, hasDrm, requestHeaders, onError }: MiniP
     // Cleanup previous instance
     cleanup();
 
-    // Check for DRM
-    if (hasDrm) {
-      setPlayerState('drm-blocked');
-      setError('DRM-protected content cannot be played in DevTools');
-      return;
-    }
-
-    // MSE streams can't be previewed externally
-    if (type === 'mse') {
-      setPlayerState('error');
-      setError('MSE stream — use the page\'s native player');
-      return;
-    }
-
     const video = videoRef.current;
-    setPlayerState('loading');
     setError(null);
+
+    // --- Phase 1: Instant URL-based assessment ---
+    const assessment = assessPreviewability(url, type, hasDrm);
+    if (assessment) {
+      setPlayerState(hasDrm ? 'drm-blocked' : 'not-previewable');
+      setError(`${assessment.title}\n${assessment.message}`);
+      return;
+    }
+
+    setPlayerState('checking');
 
     let cancelled = false;
 
@@ -255,8 +373,19 @@ export function MiniPlayer({ url, type, hasDrm, requestHeaders, onError }: MiniP
       onError?.(errorMsg);
     };
 
-    // Async initialization with dynamic imports
+    // Async initialization with preflight + dynamic imports
     const initPlayer = async () => {
+      // --- Phase 2: Network preflight check ---
+      const preflightResult = await preflightCheck(url, requestHeaders);
+      if (cancelled) return;
+      if (preflightResult) {
+        setPlayerState('not-previewable');
+        setError(`${preflightResult.title}\n${preflightResult.message}`);
+        onError?.(`${preflightResult.title}: ${preflightResult.message}`);
+        return;
+      }
+
+      setPlayerState('loading');
       try {
         // HLS playback
         if (type === 'hls') {
@@ -501,12 +630,32 @@ export function MiniPlayer({ url, type, hasDrm, requestHeaders, onError }: MiniP
 
       {/* Video container */}
       <div className="mini-player-video-container">
+        {playerState === 'checking' && (
+          <div className="mini-player-overlay loading">
+            <div className="spinner"></div>
+            <span>Checking availability...</span>
+          </div>
+        )}
+
         {playerState === 'loading' && (
           <div className="mini-player-overlay loading">
             <div className="spinner"></div>
             <span>Loading stream...</span>
           </div>
         )}
+
+        {playerState === 'not-previewable' && (() => {
+          const parts = (error || '').split('\n');
+          const title = parts[0] || 'Not Previewable';
+          const message = parts[1] || 'This stream cannot be previewed.';
+          return (
+            <div className="mini-player-overlay not-previewable">
+              <span className="error-icon">🚫</span>
+              <span className="error-title-text">{title}</span>
+              <span className="error-text">{message}</span>
+            </div>
+          );
+        })()}
 
         {playerState === 'error' && (() => {
           const classified = classifyPlaybackError(error || 'Playback error', url);
