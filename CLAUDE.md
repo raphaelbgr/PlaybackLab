@@ -52,8 +52,10 @@ src/
 - **React 18** - UI
 - **TypeScript** - Type safety
 - **Zustand** - State management
-- **m3u8-parser** - HLS manifest parsing
+- **hls-parser** - HLS manifest parsing
 - **mpd-parser** - DASH manifest parsing
+- **hls.js** - HLS playback in MiniPlayer (lazy-loaded)
+- **dash.js** - DASH playback in MiniPlayer (lazy-loaded)
 - **Chart.js** - Metrics visualization
 
 ## Commands
@@ -141,14 +143,153 @@ npm run dev   # Starts dev server on port 8565/8566
 - Quick test URLs are available in the Streams tab ("Try:" buttons)
 - Or paste any `.m3u8` (HLS) or `.mpd` (DASH) URL and click Load
 
-## MVP Features (v1.0)
+## Current Features
 
-1. Stream URL detection (webRequest API)
-2. Manifest parsing (HLS + DASH)
-3. Video variants display
-4. Audio tracks display
-5. Basic error reporting
-6. DevTools panel UI
+### Stream Detection & Analysis
+- Automatic stream detection via `webRequest` API (extension + Content-Type matching)
+- 40+ CDN/platform detection (Akamai, Cloudflare, Fastly, AWS, Apple, YouTube, Twitch, Netflix, etc.)
+- HLS manifest parsing (master + media playlists, variants, audio tracks, subtitles)
+- DASH MPD parsing (periods, adaptation sets, representations)
+- Segment tracking under parent streams (`.ts`, `.m4s`, `.mp4` segments counted, not listed)
+- Synthetic parent streams for CDN segments without discoverable masters
+- Native MP4/WebM detection (identified but not treated as adaptive streams)
+
+### DevTools Panel UI
+- Stream list with type badges (HLS/DASH), platform detection, quality summaries
+- Video variant ladder with codec, resolution, HDR, frame rate, and bitrate tags
+- Audio track display with branded codec names (Dolby Digital, Dolby Atmos, AAC-LC, etc.)
+- Stream health scoring and error explanations
+- MiniPlayer preview with 3-phase preflight (URL check, HEAD request, playback error classification)
+- ACTIVE/PLAYING status badges for live streams
+- Network request inspector (per-stream filtering)
+- Export panel (JSON, cURL)
+- Command palette (Ctrl+K) and keyboard shortcuts
+- Settings panel with ad filtering toggle
+
+### Video Overlays (On-Page)
+- Persistent overlays on all `<video>` elements showing stream type badge
+- Inspect button to select the corresponding stream in DevTools panel
+- Copy URL button for manifest URLs
+- Resolution badge on playing videos
+- Main-world bridge for player library detection (HLS.js, dash.js, Shaka Player)
+- Click-time stream resolution (re-checks player state when user clicks Inspect)
+- Badge styling matching the app's design system (pill-shaped, semi-transparent)
+
+### Ad Detection
+- VAST/VMAP ad detection (IMA, FreeWheel)
+- Ad URL filtering (configurable)
+- Ad count display in header
+
+## Video Overlay System Architecture
+
+The video overlay system places persistent debug overlays on all `<video>` elements on the page. This involves three layers: content script (isolated world), background service worker, and DevTools panel.
+
+### Main-World Bridge Pattern (CRITICAL)
+
+Content scripts run in Chrome's **isolated world** and **cannot access page JavaScript objects** like `video.hls`, `video.player`, or `video.shaka`. Player libraries (HLS.js, dash.js, Shaka) attach instances to video elements in the **main world**.
+
+**Solution:** The background script uses `chrome.scripting.executeScript({ world: 'MAIN' })` to run a function in the page's main world that reads player library info from video elements.
+
+**Implementation:** `collectVideoPlayerInfo(tabId)` in `src/entrypoints/background/index.ts`
+- Scans `Object.getOwnPropertyNames(window)` one level deep for player instances
+- Detects HLS.js instances (objects with `.media` = HTMLVideoElement + `.url`)
+- Detects dash.js instances (objects with `.getVideoElement()` + `.getSource()`)
+- Also checks `video.hls`, `video.shaka`, `video.player` properties
+- Returns `Array<{ index: number; url: string; type: string }>`
+
+### Click-Time Stream Resolution
+
+When a user clicks the "Inspect" button on an overlay:
+1. Content script sends `SELECT_STREAM_FROM_PAGE` to background
+2. If `streamId` is null, background **re-runs** `collectVideoPlayerInfo()` at click time
+3. Matches the URL against `tabStreams` to resolve the correct streamId
+4. Forwards `SELECT_STREAM_IN_PANEL` to the DevTools panel
+
+This ensures Inspect works even if overlays were created before videos finished loading.
+
+### Content Script Stream Matching (`getStreamTypeForVideo`)
+
+Located in `src/entrypoints/content/index.ts`, uses 3-priority matching:
+
+1. **Main-world bridge data** (most reliable) — `videoStreamMap` populated by `collectVideoPlayerInfo()`
+2. **Isolated-world player detection** (fallback) — checks `video.hls`, `video.shaka`, `video.player`
+3. **Direct src check** — uses `video.currentSrc` or `video.src`
+
+Then matches against `detectedStreamsCache` at 4 confidence levels:
+- Level 1: Exact URL match
+- Level 2: URL without query params (handles token differences)
+- Level 3: Same host + same filename
+- Level 4: Single stream matching for blob: URLs
+
+### Overlay Badge Colors
+
+Match the app's design system:
+| Type | Color | Background |
+|------|-------|------------|
+| HLS | `#4fc3f7` | `rgba(79, 195, 247, 0.15)` |
+| DASH | `#ffb74d` | `rgba(255, 183, 77, 0.15)` |
+| VIDEO | `#ab47bc` | `rgba(171, 71, 188, 0.15)` |
+
+Style: pill-shaped (`border-radius: 10px`), `backdrop-filter: blur(8px)`, 10px font, 700 weight.
+
+### Test Page Setup
+
+For the main-world bridge to work on test pages, player instances must be attached to video elements:
+```javascript
+// HLS.js - standard pattern for DevTools extensions
+hls.attachMedia(video);
+video.hls = hls;
+
+// dash.js - same pattern
+player.initialize(video, url, true);
+video.player = player;
+```
+
+## Message Types (Background ↔ Panel ↔ Content Script)
+
+### Stream Lifecycle
+| Message | Direction | Payload | Description |
+|---------|-----------|---------|-------------|
+| `STREAM_DETECTED` | bg → panel | `StreamInfo` | New master stream detected |
+| `SEGMENT_DETECTED` | bg → panel | `{ parentStreamId, segmentUrl }` | Segment counted under parent |
+| `MANIFEST_LOADED` | bg → panel | `{ streamId, tabId, manifest }` | Parsed manifest data |
+| `MANIFEST_ERROR` | bg → panel | `{ streamId, tabId, error }` | Manifest parse failure |
+| `REFETCH_MANIFEST` | panel → bg | `{ streamId }` | Request manifest re-fetch |
+| `PLAYBACK_STATE_UPDATED` | bg → panel | `{ tabId, streams }` | Updated playback states |
+
+### Video Overlays
+| Message | Direction | Payload | Description |
+|---------|-----------|---------|-------------|
+| `ENABLE_VIDEO_OVERLAYS` | panel → bg → content | `{ tabId }` | Enable overlay system |
+| `DISABLE_VIDEO_OVERLAYS` | panel → bg → content | `{ tabId }` | Disable overlay system |
+| `UPDATE_STREAMS_CACHE` | bg → content | `{ streams, videoStreamMap }` | Push stream + bridge data to content |
+| `SELECT_STREAM_FROM_PAGE` | content → bg | `{ url, streamId, videoIndex }` | User clicked Inspect on overlay |
+| `SELECT_STREAM_IN_PANEL` | bg → panel | `{ url, streamId, videoIndex }` | Background resolved stream, tell panel |
+| `GET_VIDEO_OVERLAY_STATUS` | panel → bg | `{ tabId }` | Check if overlays are active |
+
+### Ad Detection
+| Message | Direction | Payload | Description |
+|---------|-----------|---------|-------------|
+| `AD_DETECTED` | bg → panel | `DetectedAd` | New ad request detected |
+| `AD_PARSED` | bg → panel | `AdParsedPayload` | VAST/VMAP parsed content |
+| `AD_ERROR` | bg → panel | `{ adId, tabId, error }` | Ad parse failure |
+
+### Data Queries
+| Message | Direction | Payload | Description |
+|---------|-----------|---------|-------------|
+| `GET_STREAMS` | panel → bg | `{ tabId }` | Get all streams + cached manifests/errors |
+| `GET_ADS` | panel → bg | `{ tabId }` | Get all ads for tab |
+| `CLEAR_TAB` | panel → bg | `{ tabId }` | Clear all data for tab |
+
+## Background Script Caching
+
+The background script (`src/entrypoints/background/index.ts`) caches:
+- **Manifests:** `tabManifestCache` — Map<tabId, Map<streamId, ParsedManifest>>
+- **Errors:** `tabErrorCache` — Map<tabId, Map<streamId, string>>
+- **Streams:** `tabStreams` — Map<tabId, StreamInfo[]>
+- **Network requests:** `tabNetworkRequests` — Map<tabId, NetworkRequest[]>
+
+When the panel sends `GET_STREAMS`, the response includes `{ streams, manifests, errors }` so the panel doesn't need to re-fetch manifests that were already parsed.
 
 ## Coding Standards
 
@@ -191,7 +332,7 @@ Current utilities:
 - Deep cloning: `structuredClone` (native) or `lodash-es/cloneDeep`
 - Debounce/throttle: `lodash-es/debounce` or `use-debounce`
 - URL parsing: Native `URL` API
-- Manifest parsing: `m3u8-parser`, `mpd-parser` (already installed)
+- Manifest parsing: `hls-parser`, `mpd-parser` (already installed)
 
 **Do NOT reinvent:**
 - Date formatting/parsing

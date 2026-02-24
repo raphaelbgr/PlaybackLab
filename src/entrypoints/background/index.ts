@@ -331,6 +331,128 @@ export default defineBackground(() => {
     }
   });
 
+  // Collect video player info from the page's main world
+  // Content scripts run in an isolated world and can't access video.hls, video.player, etc.
+  // This bridge runs in the MAIN world to read player library info from video elements.
+  async function collectVideoPlayerInfo(tabId: number): Promise<Array<{ index: number; url: string; type: string }>> {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN' as chrome.scripting.ExecutionWorld,
+        func: () => {
+          const videos = document.querySelectorAll('video');
+          const info: Array<{ index: number; url: string; type: string }> = [];
+
+          // Build a map: video element → { url, type } by scanning known player library instances
+          const videoUrlMap = new Map<HTMLVideoElement, { url: string; type: string }>();
+
+          // Helper: check if an object is an HLS.js instance with an attached media element
+          const tryHlsInstance = (obj: any) => {
+            try {
+              if (obj && obj.media instanceof HTMLVideoElement && typeof obj.url === 'string' && obj.url) {
+                videoUrlMap.set(obj.media, { url: obj.url, type: 'hls' });
+              }
+            } catch {}
+          };
+
+          // Helper: check if an object is a dash.js player instance
+          const tryDashInstance = (obj: any) => {
+            try {
+              if (obj && typeof obj.getVideoElement === 'function' && typeof obj.getSource === 'function') {
+                const media = obj.getVideoElement();
+                if (media instanceof HTMLVideoElement) {
+                  const src = obj.getSource();
+                  const url = typeof src === 'string' ? src : (src && src.src ? src.src : '');
+                  if (url) videoUrlMap.set(media, { url, type: 'dash' });
+                }
+              }
+            } catch {}
+          };
+
+          // Scan window properties (one level deep) for player instances
+          const w = window as any;
+          for (const key of Object.getOwnPropertyNames(w)) {
+            try {
+              const val = w[key];
+              if (!val || typeof val !== 'object') continue;
+              // Direct instance on window
+              tryHlsInstance(val);
+              tryDashInstance(val);
+              // Object containing instances (e.g., window.hlsInstances = { player1: hls1 })
+              if (!Array.isArray(val) && !(val instanceof HTMLElement) && !(val instanceof Event)) {
+                for (const subKey of Object.keys(val)) {
+                  try {
+                    tryHlsInstance(val[subKey]);
+                    tryDashInstance(val[subKey]);
+                  } catch {}
+                }
+              }
+            } catch {}
+          }
+
+          videos.forEach((video, i) => {
+            const v = video as any;
+            let url = '';
+            let type = '';
+
+            // Check map first (from global scan above)
+            const mapped = videoUrlMap.get(video);
+            if (mapped) {
+              url = mapped.url;
+              type = mapped.type;
+            }
+
+            // Check video element properties directly (common patterns)
+            if (!url) {
+              // HLS.js (video.hls = hlsInstance is standard practice)
+              if (v.hls && v.hls.url) {
+                url = v.hls.url;
+                type = 'hls';
+              }
+              // Shaka Player (video.shaka)
+              else if (v.shaka && typeof v.shaka.getAssetUri === 'function') {
+                try {
+                  url = v.shaka.getAssetUri() || '';
+                  type = url.includes('.mpd') ? 'dash' : url.includes('.m3u8') ? 'hls' : '';
+                } catch {}
+              }
+              // dash.js (video.player = dashPlayer)
+              else if (v.player && typeof v.player.getSource === 'function') {
+                try {
+                  const src = v.player.getSource();
+                  url = typeof src === 'string' ? src : (src && src.src ? src.src : '');
+                  type = 'dash';
+                } catch {}
+              }
+              // Alternative dash.js property name
+              else if (v.dashPlayer && typeof v.dashPlayer.getSource === 'function') {
+                try { url = v.dashPlayer.getSource() || ''; type = 'dash'; } catch {}
+              }
+            }
+
+            // Fallback: check direct src for manifest URLs
+            if (!url) {
+              const src = video.currentSrc || video.src || '';
+              if (!src.startsWith('blob:')) {
+                url = src;
+                if (src.includes('.m3u8')) type = 'hls';
+                else if (src.includes('.mpd')) type = 'dash';
+              }
+            }
+
+            info.push({ index: i, url, type });
+          });
+          return info;
+        },
+      });
+      // executeScript returns array of results per frame
+      return results?.[0]?.result || [];
+    } catch (err) {
+      console.warn('[PlaybackLab] Failed to collect video player info from main world:', err);
+      return [];
+    }
+  }
+
   // Handle messages from DevTools panel
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.type) {
@@ -533,15 +655,19 @@ export default defineBackground(() => {
           }
 
           // Helper to enable overlays after ensuring content script is ready
-          const enableOverlays = () => {
+          const enableOverlays = async () => {
             // Send detected streams to content script for matching
             const streams = tabStreams.get(tabId) || [];
             const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
 
-            // First update streams cache, then enable overlays
+            // Run main-world bridge to read player library info from video elements
+            // Content scripts can't access video.hls, video.player, etc. (isolated world)
+            const videoStreamMap = await collectVideoPlayerInfo(tabId);
+
+            // First update streams cache + video map, then enable overlays
             chrome.tabs.sendMessage(tabId, {
               type: 'UPDATE_STREAMS_CACHE',
-              payload: { streams: streamsCache },
+              payload: { streams: streamsCache, videoStreamMap },
             }, () => {
               if (chrome.runtime.lastError) {
                 sendResponse({ success: false, error: chrome.runtime.lastError.message });
@@ -626,17 +752,59 @@ export default defineBackground(() => {
 
       case 'SELECT_STREAM_FROM_PAGE': {
         // Forward to DevTools panel to select the stream
-        const { url, streamId, videoIndex } = message.payload as {
+        const { url: origUrl, streamId: origStreamId, videoIndex } = message.payload as {
           url: string;
           streamId: string | null;
           videoIndex: number;
         };
-        chrome.runtime.sendMessage({
-          type: 'SELECT_STREAM_IN_PANEL',
-          payload: { url, streamId, videoIndex },
-        }).catch(() => {
-          // DevTools panel not open, ignore
-        });
+        const senderTabId = _sender.tab?.id;
+
+        // If content script couldn't resolve the streamId, try click-time resolution
+        if (!origStreamId && senderTabId) {
+          collectVideoPlayerInfo(senderTabId).then(videoMap => {
+            let resolvedUrl = origUrl;
+            let resolvedStreamId = origStreamId;
+
+            // Look up this video's URL from main-world bridge
+            const videoInfo = videoMap.find(v => v.index === videoIndex);
+            if (videoInfo?.url) {
+              resolvedUrl = videoInfo.url;
+            }
+
+            // Match URL against detected streams for this tab
+            if (resolvedUrl && !resolvedUrl.startsWith('blob:')) {
+              const tabStreamList = tabStreams.get(senderTabId) || [];
+              const match = tabStreamList.find(s => s.url === resolvedUrl)
+                || tabStreamList.find(s => {
+                  try {
+                    return new URL(s.url).pathname === new URL(resolvedUrl).pathname
+                      && new URL(s.url).host === new URL(resolvedUrl).host;
+                  } catch { return false; }
+                });
+              if (match) {
+                resolvedStreamId = match.id;
+                resolvedUrl = match.url;
+              }
+            }
+
+            chrome.runtime.sendMessage({
+              type: 'SELECT_STREAM_IN_PANEL',
+              payload: { url: resolvedUrl, streamId: resolvedStreamId, videoIndex },
+            }).catch(() => {});
+          }).catch(() => {
+            // Fallback: forward as-is
+            chrome.runtime.sendMessage({
+              type: 'SELECT_STREAM_IN_PANEL',
+              payload: { url: origUrl, streamId: origStreamId, videoIndex },
+            }).catch(() => {});
+          });
+        } else {
+          // Already has streamId or no tab context - forward directly
+          chrome.runtime.sendMessage({
+            type: 'SELECT_STREAM_IN_PANEL',
+            payload: { url: origUrl, streamId: origStreamId, videoIndex },
+          }).catch(() => {});
+        }
         sendResponse({ success: true });
         return false;
       }
@@ -839,10 +1007,13 @@ export default defineBackground(() => {
 
         // Update content script cache if overlays are enabled
         if (overlaysEnabledTabs.has(stream.tabId)) {
-          const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
-          chrome.tabs.sendMessage(stream.tabId, {
-            type: 'UPDATE_STREAMS_CACHE',
-            payload: { streams: streamsCache },
+          // Also re-collect main-world video info so overlays can match correctly
+          collectVideoPlayerInfo(stream.tabId).then(videoStreamMap => {
+            const streamsCache = streams.map(s => ({ url: s.url, type: s.type, id: s.id }));
+            chrome.tabs.sendMessage(stream.tabId, {
+              type: 'UPDATE_STREAMS_CACHE',
+              payload: { streams: streamsCache, videoStreamMap },
+            }).catch(() => {});
           }).catch(() => {});
         }
 

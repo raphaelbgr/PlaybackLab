@@ -250,6 +250,7 @@
 
         hls.loadSource(url);
         hls.attachMedia(video);
+        video.hls = hls; // Expose for DevTools extensions (standard pattern)
         setStatus(videoId, 'loading', 'loading...');
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Safari native HLS
@@ -289,6 +290,7 @@
         player.on('playbackError', (e) => setStatus(videoId, 'error', `playback error: ${e.error?.code || 'unknown'}`));
 
         player.initialize(video, url, true);
+        video.player = player; // Expose for DevTools extensions (standard pattern)
         setStatus(videoId, 'loading', 'loading...');
       } catch (e) {
         setStatus(videoId, 'error', `init error: ${e.message}`);

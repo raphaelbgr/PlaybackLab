@@ -132,28 +132,41 @@ function AppContent() {
           }
         }
 
-        // If still not selected, try to find a video stream (master playlist with variants)
-        if (!selected) {
-          // Filter to only video streams
-          const videoStreams = streamsList.filter(hasVideoVariants);
+        // If we have a URL that didn't match, check why
+        if (!selected && url && !url.startsWith('blob:')) {
+          const isNativeMedia = /\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i.test(url);
+          if (isNativeMedia) {
+            showToast('info', 'This is a native MP4/WebM video, not an adaptive stream.');
+            return;
+          }
 
-          if (streamsList.length === 0) {
-            showToast('warning', 'No streams detected. Enable auto-detection and refresh the page.');
-          } else if (videoStreams.length === 1) {
-            // Exactly one video stream - select it
-            selectStream(videoStreams[0].info.id);
+          // URL-based match: try matching by pathname (handles query param differences)
+          const urlMatch = streamsList.find(s => {
+            try {
+              return new URL(s.info.url).pathname === new URL(url).pathname
+                && new URL(s.info.url).host === new URL(url).host;
+            } catch { return false; }
+          });
+          if (urlMatch) {
+            selectStream(urlMatch.info.id);
             selected = true;
-          } else if (videoStreams.length > 1) {
-            // Multiple video streams - let user choose
-            showToast('info', 'Multiple video streams detected. Please select the correct one from the list.');
-            setCurrentTab('streams');
+          }
+        }
+
+        // If still not selected, provide helpful guidance
+        if (!selected) {
+          if (streamsList.length === 0) {
+            showToast('info', 'No streams detected yet. Try loading the video first.');
           } else if (streamsList.length === 1) {
-            // Only one stream (non-video) - select it
             selectStream(streamsList[0].info.id);
             selected = true;
           } else {
-            // Multiple non-video streams
-            showToast('info', 'Multiple streams detected. Please select one from the list.');
+            // Check if video is not loaded — no URL means no player attached
+            if (!url || url.startsWith('blob:')) {
+              showToast('info', 'Could not match this video. Try loading it first, or select a stream from the list.');
+            } else {
+              showToast('info', 'Could not match this video to a detected stream. Select one from the list.');
+            }
             setCurrentTab('streams');
           }
         }

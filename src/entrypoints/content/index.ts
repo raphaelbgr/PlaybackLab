@@ -54,6 +54,10 @@ let persistentOverlays: Map<HTMLVideoElement, HTMLDivElement> = new Map();
 // Detected streams cache (populated by background script)
 let detectedStreamsCache: Array<{ url: string; type: string; id: string }> = [];
 
+// Video-to-stream mapping from main world (populated by background via chrome.scripting.executeScript)
+// Maps video element index → { url, type } as read from player libraries (hls.js, dash.js, shaka)
+let videoStreamMap: Array<{ index: number; url: string; type: string }> = [];
+
 // WXT content script configuration
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -761,14 +765,14 @@ export default defineContentScript({
           }
           .playbacklab-persistent-overlay {
             position: absolute;
-            border: 2px solid #00d4ff;
+            border: 1.5px solid rgba(79, 195, 247, 0.4);
             border-radius: 4px;
             pointer-events: none;
             box-sizing: border-box;
             transition: border-color 0.2s ease;
           }
           .playbacklab-persistent-overlay:hover {
-            border-color: #00ff88;
+            border-color: rgba(79, 195, 247, 0.7);
           }
           .playbacklab-overlay-badge {
             position: absolute;
@@ -776,106 +780,100 @@ export default defineContentScript({
             left: 8px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             pointer-events: auto;
           }
           .playbacklab-overlay-type {
-            background: linear-gradient(135deg, #007acc 0%, #00d4ff 100%);
-            color: white;
-            padding: 6px 12px;
-            border-radius: 4px;
+            background: rgba(133, 133, 133, 0.15);
+            color: #858585;
+            border: 1px solid rgba(133, 133, 133, 0.3);
+            padding: 3px 8px;
+            border-radius: 10px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            box-shadow: 0 2px 8px rgba(0, 122, 204, 0.4);
             cursor: pointer;
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            transition: transform 0.15s ease, filter 0.15s ease;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
           }
           .playbacklab-overlay-type:hover {
             transform: scale(1.05);
-            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.5);
+            filter: brightness(1.2);
           }
           .playbacklab-overlay-type.hls {
-            background: linear-gradient(135deg, #ff6b35 0%, #ff9f43 100%);
-            box-shadow: 0 2px 8px rgba(255, 107, 53, 0.4);
-          }
-          .playbacklab-overlay-type.hls:hover {
-            box-shadow: 0 4px 12px rgba(255, 159, 67, 0.5);
+            background: rgba(79, 195, 247, 0.15);
+            color: #4fc3f7;
+            border-color: rgba(79, 195, 247, 0.3);
           }
           .playbacklab-overlay-type.dash {
-            background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
-            box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4);
+            background: rgba(255, 183, 77, 0.15);
+            color: #ffb74d;
+            border-color: rgba(255, 183, 77, 0.3);
           }
-          .playbacklab-overlay-type.dash:hover {
-            box-shadow: 0 4px 12px rgba(167, 139, 250, 0.5);
+          .playbacklab-overlay-type.video {
+            background: rgba(171, 71, 188, 0.15);
+            color: #ab47bc;
+            border-color: rgba(171, 71, 188, 0.3);
           }
           .playbacklab-overlay-actions {
             position: absolute;
             top: 8px;
             right: 8px;
             display: flex;
-            gap: 6px;
+            gap: 4px;
             pointer-events: auto;
           }
           .playbacklab-overlay-btn {
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 4px;
+            background: rgba(30, 30, 30, 0.85);
+            color: #e0e0e0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 3px 8px;
+            border-radius: 10px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 11px;
-            font-weight: 500;
+            font-size: 10px;
+            font-weight: 600;
             cursor: pointer;
-            transition: background 0.15s ease, transform 0.15s ease;
+            transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
             display: flex;
             align-items: center;
             gap: 4px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
           }
           .playbacklab-overlay-btn:hover {
-            background: rgba(0, 122, 204, 0.9);
+            background: rgba(79, 195, 247, 0.2);
+            border-color: rgba(79, 195, 247, 0.4);
+            color: #4fc3f7;
             transform: scale(1.05);
           }
           .playbacklab-overlay-btn.copy-btn:hover {
-            background: rgba(0, 180, 100, 0.9);
+            background: rgba(78, 201, 176, 0.2);
+            border-color: rgba(78, 201, 176, 0.4);
+            color: #4ec9b0;
           }
           .playbacklab-overlay-btn.copied {
-            background: rgba(0, 180, 100, 0.9);
-          }
-          .playbacklab-overlay-info {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            right: 8px;
-            background: rgba(0, 0, 0, 0.85);
-            color: #e0e0e0;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-family: 'SF Mono', Monaco, Consolas, monospace;
-            font-size: 10px;
-            pointer-events: auto;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            cursor: pointer;
-            transition: background 0.15s ease;
-          }
-          .playbacklab-overlay-info:hover {
-            background: rgba(0, 0, 0, 0.95);
+            background: rgba(78, 201, 176, 0.2);
+            border-color: rgba(78, 201, 176, 0.4);
+            color: #4ec9b0;
           }
           .playbacklab-overlay-resolution {
             position: absolute;
             bottom: 8px;
             right: 8px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #888;
-            padding: 4px 8px;
-            border-radius: 4px;
+            background: rgba(30, 30, 30, 0.75);
+            color: #858585;
+            padding: 3px 8px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 10px;
+            font-size: 9px;
+            font-weight: 600;
             pointer-events: none;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
           }
         </style>
       `;
@@ -892,51 +890,55 @@ export default defineContentScript({
       persistentOverlaysEnabled = false;
     };
 
-    const getStreamTypeForVideo = (video: HTMLVideoElement): { type: string; url: string; streamId: string | null } => {
-      // Extended type checking for various player libraries
-      const videoEl = video as HTMLVideoElement & {
-        hls?: { url?: string; levels?: unknown[] };
-        shaka?: { getAssetUri?: () => string };
-        player?: { getSource?: () => { src: string } | string };
-        dashPlayer?: { getSource?: () => string };
-        plyr?: { source?: { sources?: Array<{ src: string; type?: string }> } };
-      };
-
+    const getStreamTypeForVideo = (video: HTMLVideoElement, videoIndex: number): { type: string; url: string; streamId: string | null } => {
       let url = '';
       let type = 'VIDEO'; // Default - never show "MSE" to users
       let streamId: string | null = null;
       let detectedFromPlayer = false;
 
-      // Check HLS.js - most common (check multiple ways)
-      if (videoEl.hls?.url) {
-        url = videoEl.hls.url;
-        type = 'HLS';
+      // Priority 1: Use main-world bridge data (most reliable)
+      // Background runs chrome.scripting.executeScript in MAIN world to read video.hls, video.player, etc.
+      // This works because content scripts run in isolated world and can't access page JS objects.
+      const mainWorldInfo = videoStreamMap.find(v => v.index === videoIndex);
+      if (mainWorldInfo?.url) {
+        url = mainWorldInfo.url;
+        type = mainWorldInfo.type?.toUpperCase() || 'VIDEO';
         detectedFromPlayer = true;
-      }
-      // Also check if hls object exists without url (still indicates HLS playback)
-      else if (videoEl.hls && videoEl.hls.levels) {
-        type = 'HLS';
-        detectedFromPlayer = true;
-      }
-      // Check Shaka Player (supports both HLS and DASH)
-      else if (videoEl.shaka?.getAssetUri) {
-        try {
-          url = videoEl.shaka.getAssetUri() || '';
-          type = url.includes('.mpd') ? 'DASH' : url.includes('.m3u8') ? 'HLS' : 'VIDEO';
-          detectedFromPlayer = true;
-        } catch {}
-      }
-      // Check dash.js
-      else if (videoEl.player?.getSource) {
-        try {
-          const source = videoEl.player.getSource();
-          url = typeof source === 'string' ? source : source?.src || '';
-          type = 'DASH';
-          detectedFromPlayer = true;
-        } catch {}
       }
 
-      // Check direct src if not detected from player
+      // Priority 2: Try isolated-world player detection (works if page exposes on element)
+      if (!detectedFromPlayer) {
+        const videoEl = video as HTMLVideoElement & {
+          hls?: { url?: string; levels?: unknown[] };
+          shaka?: { getAssetUri?: () => string };
+          player?: { getSource?: () => { src: string } | string };
+          dashPlayer?: { getSource?: () => string };
+        };
+
+        if (videoEl.hls?.url) {
+          url = videoEl.hls.url;
+          type = 'HLS';
+          detectedFromPlayer = true;
+        } else if (videoEl.hls && videoEl.hls.levels) {
+          type = 'HLS';
+          detectedFromPlayer = true;
+        } else if (videoEl.shaka?.getAssetUri) {
+          try {
+            url = videoEl.shaka.getAssetUri() || '';
+            type = url.includes('.mpd') ? 'DASH' : url.includes('.m3u8') ? 'HLS' : 'VIDEO';
+            detectedFromPlayer = true;
+          } catch {}
+        } else if (videoEl.player?.getSource) {
+          try {
+            const source = videoEl.player.getSource();
+            url = typeof source === 'string' ? source : source?.src || '';
+            type = 'DASH';
+            detectedFromPlayer = true;
+          } catch {}
+        }
+      }
+
+      // Priority 3: Check direct src if not detected from player
       if (!detectedFromPlayer && (video.currentSrc || video.src)) {
         url = video.currentSrc || video.src;
         if (url.includes('.m3u8')) type = 'HLS';
@@ -995,40 +997,33 @@ export default defineContentScript({
           } catch {}
         }
 
-        // For blob: URLs or when type is still VIDEO, use detected stream info
-        // This ensures we show HLS/DASH instead of VIDEO when possible
-        if (url.startsWith('blob:') || type === 'VIDEO') {
-          // If exactly one stream, use it (very high confidence)
-          if (detectedStreamsCache.length === 1) {
-            const singleStream = detectedStreamsCache[0];
-            streamId = singleStream.id;
-            type = singleStream.type.toUpperCase();
-            url = singleStream.url;
-            return { type, url, streamId };
-          }
-
-          // If multiple streams but all same type, use that type
-          const streamTypes = new Set(detectedStreamsCache.map(s => s.type));
-          if (streamTypes.size === 1) {
-            type = detectedStreamsCache[0].type.toUpperCase();
-            // Don't set streamId - let user select which stream
-          }
+        // For blob: URLs with exactly one stream, we can confidently match
+        if (url.startsWith('blob:') && detectedStreamsCache.length === 1) {
+          const singleStream = detectedStreamsCache[0];
+          streamId = singleStream.id;
+          type = singleStream.type.toUpperCase();
+          url = singleStream.url;
+          return { type, url, streamId };
         }
+        // Don't guess type from cache when we can't match — wrong guesses are worse than showing VIDEO
       }
 
       return { type, url, streamId };
     };
 
-    const copyToClipboard = async (text: string, button: HTMLButtonElement) => {
-      try {
-        await navigator.clipboard.writeText(text);
+    const copyToClipboard = async (text: string, button: HTMLButtonElement | HTMLDivElement) => {
+      const showCopied = () => {
         button.classList.add('copied');
-        const originalText = button.innerHTML;
-        button.innerHTML = '✓ Copied';
+        const originalText = button.textContent || '';
+        button.textContent = 'Copied';
         setTimeout(() => {
           button.classList.remove('copied');
-          button.innerHTML = originalText;
+          button.textContent = originalText;
         }, 1500);
+      };
+      try {
+        await navigator.clipboard.writeText(text);
+        showCopied();
       } catch {
         // Fallback for when clipboard API is blocked
         const textarea = document.createElement('textarea');
@@ -1039,13 +1034,7 @@ export default defineContentScript({
         textarea.select();
         try {
           document.execCommand('copy');
-          button.classList.add('copied');
-          const originalText = button.innerHTML;
-          button.innerHTML = '✓ Copied';
-          setTimeout(() => {
-            button.classList.remove('copied');
-            button.innerHTML = originalText;
-          }, 1500);
+          showCopied();
         } catch {}
         document.body.removeChild(textarea);
       }
@@ -1063,10 +1052,20 @@ export default defineContentScript({
         const rect = video.getBoundingClientRect();
         if (rect.width < 100 || rect.height < 60) return; // Skip tiny videos
 
-        const { type, url, streamId } = getStreamTypeForVideo(video);
+        const { type, url, streamId } = getStreamTypeForVideo(video, index);
         const resolution = video.videoWidth && video.videoHeight
           ? `${video.videoWidth}×${video.videoHeight}`
           : '';
+
+        // Determine display type — show format for native videos
+        let displayType = type;
+        let badgeClass = type.toLowerCase();
+        const isNativeMedia = url && !url.startsWith('blob:') && /\.(mp4|webm|ogg|mov)(\?|$)/i.test(url);
+        if (isNativeMedia) {
+          const ext = url.match(/\.(mp4|webm|ogg|mov)/i)?.[1]?.toUpperCase() || 'VIDEO';
+          displayType = ext;
+          badgeClass = 'video'; // Use VIDEO color for native formats
+        }
 
         const overlay = document.createElement('div');
         overlay.className = 'playbacklab-persistent-overlay';
@@ -1080,17 +1079,16 @@ export default defineContentScript({
         const badge = document.createElement('div');
         badge.className = 'playbacklab-overlay-badge';
 
-        // Get tooltip text based on type
         const typeTooltips: Record<string, string> = {
-          'HLS': 'HLS (HTTP Live Streaming) - Apple\'s adaptive streaming protocol. Click to inspect.',
-          'DASH': 'DASH (Dynamic Adaptive Streaming over HTTP) - MPEG standard for adaptive streaming. Click to inspect.',
-          'VIDEO': 'Video element detected. Stream type unknown - click to view in PlaybackLab.',
+          'HLS': 'HLS (HTTP Live Streaming) — Click to inspect in PlaybackLab.',
+          'DASH': 'DASH (Dynamic Adaptive Streaming over HTTP) — Click to inspect in PlaybackLab.',
+          'VIDEO': 'Video element — not an adaptive stream.',
         };
 
         const typeBadge = document.createElement('div');
-        typeBadge.className = `playbacklab-overlay-type ${type.toLowerCase()}`;
-        typeBadge.textContent = type;
-        typeBadge.title = typeTooltips[type] || `${type} stream detected. Click to inspect in PlaybackLab.`;
+        typeBadge.className = `playbacklab-overlay-type ${badgeClass}`;
+        typeBadge.textContent = displayType;
+        typeBadge.title = typeTooltips[type] || `${displayType} — Click to inspect in PlaybackLab.`;
         typeBadge.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -1106,8 +1104,8 @@ export default defineContentScript({
         if (url && !url.startsWith('blob:')) {
           const copyBtn = document.createElement('button');
           copyBtn.className = 'playbacklab-overlay-btn copy-btn';
-          copyBtn.innerHTML = '📋 Copy URL';
-          copyBtn.title = 'Copy stream URL';
+          copyBtn.textContent = 'Copy URL';
+          copyBtn.title = 'Copy stream URL to clipboard';
           copyBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -1116,11 +1114,11 @@ export default defineContentScript({
           actions.appendChild(copyBtn);
         }
 
-        // Info button (opens in DevTools)
+        // Inspect button (opens in DevTools)
         const infoBtn = document.createElement('button');
         infoBtn.className = 'playbacklab-overlay-btn';
-        infoBtn.innerHTML = '🔍 Inspect';
-        infoBtn.title = 'View details in PlaybackLab';
+        infoBtn.textContent = 'Inspect';
+        infoBtn.title = 'View details in PlaybackLab DevTools panel';
         infoBtn.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -1128,37 +1126,16 @@ export default defineContentScript({
         });
         actions.appendChild(infoBtn);
 
-        // URL info bar at bottom
-        const infoBar = document.createElement('div');
-        infoBar.className = 'playbacklab-overlay-info';
-        if (url && !url.startsWith('blob:')) {
-          // Truncate URL for display
-          const displayUrl = url.length > 80 ? url.substring(0, 77) + '...' : url;
-          infoBar.textContent = displayUrl;
-          infoBar.title = url;
-          infoBar.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            copyToClipboard(url, infoBar as unknown as HTMLButtonElement);
-          });
-        } else {
-          infoBar.textContent = url.startsWith('blob:') ? 'MSE/Blob stream (URL not directly copyable)' : 'No URL detected';
-          infoBar.style.color = '#888';
-        }
-
-        // Resolution badge (bottom right, only if we have info bar)
-        if (resolution && url && !url.startsWith('blob:')) {
+        // Resolution badge (bottom right)
+        if (resolution) {
           const resolutionBadge = document.createElement('div');
           resolutionBadge.className = 'playbacklab-overlay-resolution';
           resolutionBadge.textContent = resolution;
           overlay.appendChild(resolutionBadge);
-          // Adjust info bar to not overlap
-          infoBar.style.right = '100px';
         }
 
         overlay.appendChild(badge);
         overlay.appendChild(actions);
-        overlay.appendChild(infoBar);
 
         persistentOverlayContainer?.appendChild(overlay);
         persistentOverlays.set(video, overlay);
@@ -1301,6 +1278,10 @@ export default defineContentScript({
         case 'UPDATE_STREAMS_CACHE':
           if (message.payload?.streams) {
             detectedStreamsCache = message.payload.streams;
+            // Update video-to-stream mapping from main world bridge
+            if (message.payload.videoStreamMap) {
+              videoStreamMap = message.payload.videoStreamMap;
+            }
             // Refresh overlays if enabled to update stream IDs
             if (persistentOverlaysEnabled) {
               createPersistentVideoOverlays();
