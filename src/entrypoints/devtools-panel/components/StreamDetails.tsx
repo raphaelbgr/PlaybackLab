@@ -130,7 +130,7 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
         <div className="details-title">
           <span className={`type-badge ${typeToClassName(info.type)}`}>{safeUpperCase(info.type)}</span>
           <span className="details-filename">{getFilenameFromUrl(info.url)}</span>
-          {info.isActive && <span className="active-badge">{info.playbackState === 'playing' ? '▶ PLAYING' : 'ACTIVE'}</span>}
+          {info.isActive && <span className="live-badge">LIVE</span>}
         </div>
 
         {/* Collapsible URL */}
@@ -217,26 +217,42 @@ export function StreamDetails({ stream }: StreamDetailsProps) {
 
 function OverviewTab({ stream }: { stream: DetectedStream }) {
   const { manifest, info, isLoading } = stream;
-  const { setStreamLoading, setStreamError } = useStore();
+  const { setStreamLoading, updateManifest, setStreamError } = useStore();
 
-  // Request manifest from background if not loaded
-  // The background caches manifests and prevents concurrent fetches, eliminating race conditions
+  // Auto-fetch manifest if not loaded (only for HLS/DASH — MSE streams have no manifest)
   useEffect(() => {
-    if (!manifest && !isLoading && !stream.error) {
-      // Only fetch manifests for HLS/DASH — other types have no manifest to parse
-      if (info.type !== 'hls' && info.type !== 'dash') {
-        setStreamError(info.id, 'No manifest — this is a raw media stream (segments only).');
-        return;
-      }
-
-      // Ask background to fetch/return cached manifest (no direct fetch from panel)
+    if (!manifest && !isLoading && !stream.error && (info.type === 'hls' || info.type === 'dash')) {
+      // Trigger manifest fetch
       setStreamLoading(info.id, true);
-      chrome.runtime.sendMessage({
-        type: 'REFETCH_MANIFEST',
-        payload: { streamId: info.id, tabId: info.tabId },
-      });
+
+      fetch(info.url, {
+        headers: info.requestHeaders || {},
+      })
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.text();
+        })
+        .then(async (text) => {
+          // Dynamically import parser based on type
+          if (info.type === 'hls') {
+            const { HlsManifestParser } = await import('../../../core/services/HlsManifestParser');
+            const parser = new HlsManifestParser();
+            const parsed = await parser.parse(text, info.url);
+            updateManifest(info.id, parsed);
+          } else if (info.type === 'dash') {
+            const { DashManifestParser } = await import('../../../core/services/DashManifestParser');
+            const parser = new DashManifestParser();
+            const parsed = await parser.parse(text, info.url);
+            updateManifest(info.id, parsed);
+          } else {
+            setStreamLoading(info.id, false);
+          }
+        })
+        .catch((err) => {
+          setStreamError(info.id, err.message || 'Failed to load manifest');
+        });
     }
-  }, [manifest, isLoading, stream.error, info.id, info.url, info.type, info.tabId]);
+  }, [manifest, isLoading, stream.error, info.id, info.url, info.type, info.requestHeaders]);
 
   // Extract origin domain from URL
   const getOriginDomain = (url: string): string => {
@@ -888,7 +904,7 @@ function clearStoredRequests(streamUrl: string): void {
 
 function PayloadTab({ stream }: { stream: DetectedStream }) {
   const [requests, setRequests] = useState<SegmentRequest[]>([]);
-  const [isCapturing, setIsCapturing] = useState(true); // Auto-start
+  const [isCapturing] = useState(true); // Auto-start
   const [isPaused, setIsPaused] = useState(false);
   const [filter, setFilter] = useState<'all' | 'segment' | 'manifest' | 'error'>('all');
   const [selectedRequest, setSelectedRequest] = useState<SegmentRequest | null>(null);

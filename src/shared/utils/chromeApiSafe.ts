@@ -192,7 +192,10 @@ function filterTabs(tabs: chrome.tabs.Tab[], query: chrome.tabs.QueryInfo): chro
   return tabs.filter(tab => {
     if (query.active !== undefined && tab.active !== query.active) return false;
     if (query.currentWindow !== undefined && tab.windowId !== chrome.windows.WINDOW_ID_CURRENT) return false;
-    if (query.url && tab.url && !tab.url.includes(query.url)) return false;
+    if (query.url && tab.url) {
+      const urls = Array.isArray(query.url) ? query.url : [query.url];
+      if (!urls.some(u => tab.url!.includes(u))) return false;
+    }
     return true;
   });
 }

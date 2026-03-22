@@ -62,6 +62,7 @@ export function StreamsInputBar() {
       }, 500);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [hasInitialized]);
 
   // Auto-scan function (simplified version of handleScan)

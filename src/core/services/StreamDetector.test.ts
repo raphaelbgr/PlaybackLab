@@ -195,10 +195,7 @@ describe('StreamDetector', () => {
       timeStamp: Date.now(),
       initiator: 'https://example.com',
       parentFrameId: -1,
-      documentId: 'doc-1',
-      documentLifecycle: 'active' as chrome.webRequest.DocumentLifecycle,
-      frameType: 'outermost_frame' as chrome.webRequest.FrameType,
-    });
+    } as chrome.webRequest.WebRequestDetails);
 
     it('should detect HLS stream requests', () => {
       const result = detector.processRequest(createMockRequest('https://example.com/video.m3u8'));
@@ -250,10 +247,7 @@ describe('StreamDetector', () => {
         timeStamp: Date.now(),
         initiator: 'https://example.com',
         parentFrameId: -1,
-        documentId: 'doc-1',
-        documentLifecycle: 'active' as chrome.webRequest.DocumentLifecycle,
-        frameType: 'outermost_frame' as chrome.webRequest.FrameType,
-      });
+      } as chrome.webRequest.WebRequestDetails);
 
       detector.processRequest(mockRequest('https://example.com/tab1-video.m3u8', 1));
       detector.processRequest(mockRequest('https://example.com/tab2-video.m3u8', 2));

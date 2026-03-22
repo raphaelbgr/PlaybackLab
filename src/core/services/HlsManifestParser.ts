@@ -6,7 +6,7 @@
  */
 
 import * as HLS from 'hls-parser';
-import type { MasterPlaylist, MediaPlaylist, Variant, Rendition, Segment } from 'hls-parser/types';
+import type { MasterPlaylist, MediaPlaylist, Variant, Segment } from 'hls-parser/types';
 import type {
   IManifestParser,
   ParsedManifest,
@@ -77,7 +77,7 @@ export class HlsManifestParser implements IManifestParser {
         audioVariants.push({
           language: audio.language,
           name: audio.name,
-          codecs: audio.codecs,
+          codecs: (audio as unknown as { codecs?: string }).codecs,
           url,
           channels: audio.channels ? parseInt(String(audio.channels), 10) : undefined,
           isMuxed,
@@ -127,11 +127,6 @@ export class HlsManifestParser implements IManifestParser {
     // Extract closed captions info (stored in DRM for now as metadata)
     // We could add a separate closedCaptions field to ParsedManifest
     const drm: DrmInfo[] = [];
-
-    // Check for closed captions (they don't have URLs, just INSTREAM-ID)
-    const hasClosedCaptions = (playlist.variants || []).some(v =>
-      (v.closedCaptions || []).length > 0
-    );
 
     return {
       type: 'hls',
@@ -214,7 +209,7 @@ export class HlsManifestParser implements IManifestParser {
 
         if (method === 'SAMPLE-AES' || method === 'SAMPLE-AES-CTR') {
           // Check for Widevine
-          if (key.keyFormat?.includes('urn:uuid:edef8ba9') && !seenTypes.has('widevine')) {
+          if (key.format?.includes('urn:uuid:edef8ba9') && !seenTypes.has('widevine')) {
             seenTypes.add('widevine');
             drm.push({
               type: 'widevine',
@@ -222,7 +217,7 @@ export class HlsManifestParser implements IManifestParser {
             });
           }
           // Check for FairPlay
-          else if (key.keyFormat?.includes('com.apple.streamingkeydelivery') && !seenTypes.has('fairplay')) {
+          else if (key.format?.includes('com.apple.streamingkeydelivery') && !seenTypes.has('fairplay')) {
             seenTypes.add('fairplay');
             drm.push({
               type: 'fairplay',

@@ -15,7 +15,7 @@ interface Props {
 export function StreamPicker({ onStreamPicked }: Props) {
   const [isPicking, setIsPicking] = useState(false);
   const [videoCount, setVideoCount] = useState<number | null>(null);
-  const { addStream, selectStream, setActiveTab } = useStore();
+  const { addStream, selectStream } = useStore();
   const { showToast } = useToast();
 
   const startPicking = async () => {

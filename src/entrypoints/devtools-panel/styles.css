@@ -363,7 +363,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-width: 480px;
+  min-width: 680px;
 }
 
 /* Header */
@@ -3143,11 +3143,11 @@ body {
   overflow: hidden;
 }
 
-/* When a stream is selected: List takes 40%, Details takes 60% */
+/* When a stream is selected: List takes fixed width, Details takes rest */
 .streams-panel.has-selection .streams-list-panel {
-  flex: 0 0 340px;
-  min-width: 280px;
-  max-width: 400px;
+  flex: 0 0 300px;
+  min-width: 260px;
+  max-width: 360px;
   border-right: 1px solid var(--border);
 }
 
@@ -3180,7 +3180,7 @@ body {
   animation: slideIn 0.2s ease;
   position: relative;
   min-height: 0;
-  min-width: 280px;
+  min-width: 340px;
   height: 100%;
 }
 
@@ -4164,10 +4164,13 @@ body {
   display: flex;
   border-bottom: 1px solid var(--border);
   background: var(--bg-primary);
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .details-tab {
-  padding: 10px 16px;
+  padding: 8px 10px;
   font-size: 12px;
   background: none;
   border: none;
@@ -4175,6 +4178,8 @@ body {
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .details-tab:hover {
@@ -6246,18 +6251,29 @@ body {
 }
 
 .mini-player-overlay .error-title-text {
+  display: block;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   text-align: center;
   margin-bottom: 2px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+  padding: 0 8px;
+  box-sizing: border-box;
 }
 
 .mini-player-overlay .error-text {
+  display: block;
   font-size: 11px;
   color: var(--text-secondary);
   text-align: center;
-  padding: 0 16px;
+  padding: 0 8px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .mini-player-overlay.not-previewable {
@@ -6273,14 +6289,25 @@ body {
 }
 
 .mini-player-overlay .drm-text {
+  display: block;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
+  text-align: center;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+  padding: 0 8px;
+  box-sizing: border-box;
 }
 
 .mini-player-overlay .drm-hint {
   font-size: 10px;
   color: var(--text-muted);
+  text-align: center;
+  overflow-wrap: break-word;
+  max-width: 100%;
+  padding: 0 8px;
 }
 
 .mini-player-controls {
