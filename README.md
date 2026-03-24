@@ -1,5 +1,8 @@
 # PlaybackLab
 
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/raphaelbgr?style=flat&logo=github&label=Sponsor)](https://github.com/sponsors/raphaelbgr)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5e5b?style=flat&logo=ko-fi)](https://ko-fi.com/raphaelbgr)
+
 > Chrome DevTools Extension for HLS/DASH Video Stream Debugging
 
 Detect, inspect, and debug HLS, DASH, and DRM video streams in real-time. Analyze manifests, monitor quality variants, track segments, preview streams, and overlay debug info directly on page videos.
@@ -100,6 +103,13 @@ npm run typecheck    # TypeScript check
 - **Test page:** `test-streams.html` — 7 streams (4 HLS + 3 DASH) + 1 native MP4
 - Serve with any HTTP server: `npx serve .` then open `http://localhost:3000/test-streams.html`
 - Open DevTools → PlaybackLab tab → enable overlays → click Load All
+
+## Support
+
+PlaybackLab is free and open source. If it saves you time debugging streams, consider supporting development:
+
+- [GitHub Sponsors](https://github.com/sponsors/raphaelbgr)
+- [Ko-fi](https://ko-fi.com/raphaelbgr)
 
 ## License
 

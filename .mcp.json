@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "bnbchain-mcp": {
+      "disabled": true
+    },
+    "evm-mcp": {
+      "disabled": true
+    },
+    "solana-mcp": {
+      "disabled": true
+    },
+    "polymarket-mcp": {
+      "disabled": true
+    },
+    "lmstudio-mcp": {
+      "disabled": true
+    },
+    "ollama-mcp": {
+      "disabled": true
+    },
+    "MCP_DOCKER": {
+      "disabled": true
+    }
+  }
+}

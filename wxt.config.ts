@@ -6,7 +6,13 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'PlaybackLab - HLS & DASH Stream Debugger',
-    description: 'Test and debug HLS, DASH, and DRM video streams. Analyze manifests, monitor quality levels, and visualize playback metrics.',
+    description: 'Inspect HLS & DASH video streams in DevTools. Analyze manifests, codecs, quality tiers, DRM, and playback metrics in real time.',
+    icons: {
+      '16': 'icon-16.png',
+      '32': 'icon-32.png',
+      '48': 'icon-48.png',
+      '128': 'icon-128.png',
+    },
     permissions: [
       'webRequest',
       'storage',
