@@ -78,8 +78,8 @@ Run Claude Code in a sandboxed Docker container with filesystem isolation, full 
 docker run -it --rm `
   --network host `
   --user node `
-  -v "C:\Users\rbgnr\git\Stream-Lens:/workspace" `
-  -v "C:\Users\rbgnr\.claude:/home/node/.claude" `
+  -v "~/git\Stream-Lens:/workspace" `
+  -v "~/.claude:/home/node/.claude" `
   -w /workspace `
   -e "HOME=/home/node" `
   node:22 `
@@ -91,8 +91,8 @@ docker run -it --rm `
 docker run -it --rm `
   --network host `
   --user node `
-  -v "C:\Users\rbgnr\git\Stream-Lens:/workspace" `
-  -v "C:\Users\rbgnr\.claude:/home/node/.claude" `
+  -v "~/git\Stream-Lens:/workspace" `
+  -v "~/.claude:/home/node/.claude" `
   -w /workspace `
   -e "HOME=/home/node" `
   node:22 `
@@ -111,11 +111,11 @@ docker run -it --rm `
 **Network access from container:**
 | Target | IP |
 |--------|-----|
-| Mac Mini | `192.168.7.102` |
+| Mac Mini | `192.168.1.x` |
 | Linux VM | `172.24.174.17` |
 | LMStudio | `172.24.160.1:1234` |
 
-For generic command template, see: `C:\Users\rbgnr\CLAUDE.md` → "Run Claude Code in Isolated Docker Mode"
+For generic command template, see: `~/CLAUDE.md` → "Run Claude Code in Isolated Docker Mode"
 
 ## Development Server Management
 

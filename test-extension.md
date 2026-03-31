@@ -6,7 +6,7 @@
    - Open `chrome://extensions`
    - Enable "Developer mode" (toggle in top right)
    - Click "Load unpacked"
-   - Select folder: `C:\Users\rbgnr\git\Stream-Lens\dist\chrome-mv3`
+   - Select folder: `~/git\Stream-Lens\dist\chrome-mv3`
 
 2. **Test on HLS.js demo page:**
    - Navigate to: https://hlsjs.video-dev.org/demo/
