@@ -7,6 +7,23 @@
 
 Detect, inspect, and debug HLS, DASH, and DRM video streams in real-time. Analyze manifests, monitor quality variants, track segments, preview streams, and overlay debug info directly on page videos.
 
+## Why This Exists
+
+Debugging adaptive video streams in the browser is surprisingly painful. Chrome's built-in Network tab often misses video segment requests entirely when using embedded players. The Media Panel shows events but gives you no way to zoom into a specific time window, intervene in playback, or understand why a quality switch happened. Manifest files are invisible unless you manually curl them. DRM failures surface as silent black screens with no actionable error. And when something breaks on YouTube, Netflix, or Twitch, there's no tool that tells you *what* stream is playing, *which* variant was selected, or *why* the player stalled.
+
+PlaybackLab was built to fill that gap — a DevTools-native panel that surfaces everything you need to debug HLS and DASH streams without leaving the browser.
+
+### Pain Points Solved
+
+- **Network tab blindness** — Video segments from embedded players (HLS.js, dash.js, Shaka, native) don't show in the Network tab. PlaybackLab intercepts them at the `webRequest` layer, capturing every manifest and segment with full metadata.
+- **No manifest visibility** — Developers resort to copy-pasting URLs into curl to read manifest content. PlaybackLab auto-fetches, parses, and displays the full variant ladder, audio tracks, and subtitle renditions in one click.
+- **Quality ladder opacity** — Understanding what bitrates, resolutions, codecs, and HDR profiles a stream offers requires reading raw M3U8/MPD XML. PlaybackLab parses it into a readable variant table with codec names (Dolby Atmos, HEVC, AVC), resolution, frame rate, and HDR tags.
+- **CDN/platform ambiguity** — Requests from YouTube, Netflix, Twitch, and 40+ CDNs produce cryptic URLs with no obvious stream identity. PlaybackLab identifies the platform, groups segments under their parent stream, and creates synthetic stream entries when no manifest URL is discoverable.
+- **Silent DRM failures** — A blank video element gives no indication of whether the license request failed, the CDM is unavailable, or the token expired. PlaybackLab classifies playback errors with context-aware explanations so you know exactly what went wrong.
+- **No in-browser stream preview** — Verifying a stream URL requires opening a separate player or test page. PlaybackLab's MiniPlayer lets you preview any detected stream inline with a 3-phase preflight check (URL validity → HEAD request → playback error classification).
+- **CORS errors with no context** — A `CORS_BLOCKED` or `401` on a segment fails silently in most tools. PlaybackLab surfaces the error with an explanation and suggested fix.
+- **Overlay-free pages** — No visible indication of which `<video>` element maps to which stream. PlaybackLab injects non-intrusive overlays on every video element with a stream type badge, resolution display, and one-click inspect/copy buttons.
+
 ## Features
 
 ### Stream Detection & Analysis
