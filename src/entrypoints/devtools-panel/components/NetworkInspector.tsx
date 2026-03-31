@@ -86,6 +86,16 @@ export function NetworkInspector({ stream }: Props) {
     return `${(ms / 1000).toFixed(2)}s`;
   };
 
+  // Get request type from URL
+  const getRequestType = (url: string): NetworkRequest['type'] => {
+    const lower = url.toLowerCase();
+    if (lower.includes('.m3u8') || lower.includes('.mpd')) return 'manifest';
+    if (lower.includes('.ts') || lower.includes('.m4s') || lower.includes('.mp4')) return 'segment';
+    if (lower.includes('.key') || lower.includes('license')) return 'key';
+    if (lower.includes('init')) return 'init';
+    return 'other';
+  };
+
   // Get status color
   const getStatusColor = (status: number): string => {
     if (status === 0) return 'error';

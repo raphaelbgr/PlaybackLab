@@ -8,6 +8,7 @@ import type { StreamInfo, PlaybackState } from '../core/interfaces/IStreamDetect
 import type { ParsedManifest } from '../core/interfaces/IManifestParser';
 import type { DetectedAd, VastParseResult } from '../core/interfaces/IAdDetector';
 import { urlsMatch } from '../shared/utils/stringUtils';
+import type { LicenseInfo } from '../shared/license';
 
 export interface PlaybackUpdate {
   playbackState?: PlaybackState;
@@ -39,6 +40,9 @@ export interface AppState {
   activeTab: 'streams' | 'network' | 'export';
   isPanelExpanded: boolean;
 
+  // License
+  license: LicenseInfo | null;
+
   // Stream Actions
   addStream: (stream: StreamInfo) => void;
   removeStream: (id: string) => void;
@@ -60,6 +64,9 @@ export interface AppState {
   setAdError: (id: string, error: string) => void;
   clearAds: () => void;
 
+  // License Actions
+  setLicense: (license: LicenseInfo) => void;
+
   // UI Actions
   setActiveTab: (tab: AppState['activeTab']) => void;
   togglePanel: () => void;
@@ -74,6 +81,7 @@ export const useStore = create<AppState>((set) => ({
   selectedAdId: null,
   activeTab: 'streams',
   isPanelExpanded: true,
+  license: null,
 
   // Actions
   addStream: (stream) =>
@@ -145,6 +153,8 @@ export const useStore = create<AppState>((set) => ({
       newStreams.set(id, { ...stream, error, isLoading: false });
       return { streams: newStreams };
     }),
+
+  setLicense: (license) => set({ license }),
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -328,3 +338,10 @@ export const useAdsList = () =>
 
 export const useAdsCount = () =>
   useStore((state) => state.ads.size);
+
+// License selectors
+export const useLicenseInfo = () =>
+  useStore((state) => state.license);
+
+export const useHasAccess = () =>
+  useStore((state) => state.license?.hasAccess ?? true);

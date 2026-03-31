@@ -363,7 +363,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-width: 680px;
+  min-width: 480px;
 }
 
 /* Header */
@@ -3143,11 +3143,11 @@ body {
   overflow: hidden;
 }
 
-/* When a stream is selected: List takes fixed width, Details takes rest */
+/* When a stream is selected: List takes 40%, Details takes 60% */
 .streams-panel.has-selection .streams-list-panel {
-  flex: 0 0 300px;
-  min-width: 260px;
-  max-width: 360px;
+  flex: 0 0 340px;
+  min-width: 280px;
+  max-width: 400px;
   border-right: 1px solid var(--border);
 }
 
@@ -3180,7 +3180,7 @@ body {
   animation: slideIn 0.2s ease;
   position: relative;
   min-height: 0;
-  min-width: 340px;
+  min-width: 280px;
   height: 100%;
 }
 
@@ -4164,13 +4164,10 @@ body {
   display: flex;
   border-bottom: 1px solid var(--border);
   background: var(--bg-primary);
-  flex-shrink: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
 }
 
 .details-tab {
-  padding: 8px 10px;
+  padding: 10px 16px;
   font-size: 12px;
   background: none;
   border: none;
@@ -4178,8 +4175,6 @@ body {
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all 0.15s;
-  white-space: nowrap;
-  flex-shrink: 0;
 }
 
 .details-tab:hover {
@@ -6251,29 +6246,18 @@ body {
 }
 
 .mini-player-overlay .error-title-text {
-  display: block;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   text-align: center;
   margin-bottom: 2px;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  max-width: 100%;
-  padding: 0 8px;
-  box-sizing: border-box;
 }
 
 .mini-player-overlay .error-text {
-  display: block;
   font-size: 11px;
   color: var(--text-secondary);
   text-align: center;
-  padding: 0 8px;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  max-width: 100%;
-  box-sizing: border-box;
+  padding: 0 16px;
 }
 
 .mini-player-overlay.not-previewable {
@@ -6289,25 +6273,14 @@ body {
 }
 
 .mini-player-overlay .drm-text {
-  display: block;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
-  text-align: center;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  max-width: 100%;
-  padding: 0 8px;
-  box-sizing: border-box;
 }
 
 .mini-player-overlay .drm-hint {
   font-size: 10px;
   color: var(--text-muted);
-  text-align: center;
-  overflow-wrap: break-word;
-  max-width: 100%;
-  padding: 0 8px;
 }
 
 .mini-player-controls {
@@ -6915,4 +6888,179 @@ body {
   text-align: center;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ============================================
+   Paywall Overlay
+   ============================================ */
+
+.paywall-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.paywall-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.paywall-icon {
+  margin-bottom: 16px;
+}
+
+.paywall-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.paywall-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 20px 0;
+  line-height: 1.5;
+}
+
+.paywall-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px 0;
+  text-align: left;
+}
+
+.paywall-features li {
+  font-size: 12px;
+  color: var(--text-primary);
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.paywall-check {
+  color: var(--success);
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.paywall-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.paywall-btn-primary {
+  background: var(--hls-color);
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.paywall-btn-primary:hover {
+  background: #81d4fa;
+  transform: translateY(-1px);
+}
+
+.paywall-btn-primary:active {
+  transform: translateY(0);
+}
+
+.paywall-btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.paywall-btn-secondary:hover {
+  color: var(--hls-color);
+}
+
+.paywall-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: -4px 0 0 0;
+}
+
+.paywall-footer {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ============================================
+   Trial & PRO Badges (header + settings)
+   ============================================ */
+
+.trial-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: rgba(79, 195, 247, 0.15);
+  color: var(--hls-color);
+  border: 1px solid rgba(79, 195, 247, 0.3);
+  margin-left: 6px;
+}
+
+.trial-badge.expiring {
+  background: rgba(255, 183, 77, 0.15);
+  color: var(--dash-color);
+  border-color: rgba(255, 183, 77, 0.3);
+}
+
+.trial-badge.pro {
+  background: rgba(78, 201, 176, 0.15);
+  color: var(--success);
+  border-color: rgba(78, 201, 176, 0.3);
+}
+
+/* ============================================
+   Account Section (settings panel)
+   ============================================ */
+
+.account-section {
+  padding: 4px 0;
+}
+
+.account-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.account-email {
+  font-size: 12px;
+  color: var(--text-secondary);
 }

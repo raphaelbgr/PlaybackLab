@@ -13,6 +13,8 @@ import { CommandPalette, type Command } from './components/CommandPalette';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ToastProvider, useToast } from './components/Toast';
 import { useKeyboardShortcuts } from '../../shared/hooks/useKeyboardShortcuts';
+import { useLicense } from '../../shared/hooks/useLicense';
+import { PaywallOverlay } from './components/PaywallOverlay';
 import { generateCurlCommand, copyToClipboard } from '../../shared/utils/copyAsCurl';
 import type { StreamInfo } from '../../core/interfaces/IStreamDetector';
 import type { ParsedManifest } from '../../core/interfaces/IManifestParser';
@@ -36,6 +38,7 @@ function AppContent() {
   const adsCount = useAdsCount();
   const [currentTab, setCurrentTab] = useState<TabId>(activeTab as TabId);
   const { showToast } = useToast();
+  const { license, isLoading: licenseLoading, hasAccess } = useLicense();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [videoOverlaysEnabled, setVideoOverlaysEnabled] = useState(false);
@@ -328,6 +331,14 @@ function AppContent() {
             {streams.length} stream{streams.length !== 1 ? 's' : ''}
             {adsCount > 0 && <> &middot; {adsCount} ad{adsCount !== 1 ? 's' : ''}</>}
           </span>
+          {license?.status === 'trial_active' && (
+            <span className={`trial-badge${license.trialDaysRemaining <= 2 ? ' expiring' : ''}`}>
+              {license.trialDaysRemaining}d trial
+            </span>
+          )}
+          {license?.paid && (
+            <span className="trial-badge pro">PRO</span>
+          )}
         </div>
         <div className="header-right">
           <button
@@ -385,6 +396,9 @@ function AppContent() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+
+      {/* Paywall Overlay - renders on top when access is denied */}
+      {!licenseLoading && !hasAccess && <PaywallOverlay />}
     </div>
   );
 }

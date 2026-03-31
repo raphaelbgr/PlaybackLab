@@ -10,6 +10,8 @@ import type { ParsedManifest } from '../../core/interfaces/IManifestParser';
 import type { DetectedAd } from '../../core/interfaces/IAdDetector';
 import { safeGetTab } from '../../shared/utils/chromeApiSafe';
 import { urlsMatch } from '../../shared/utils/stringUtils';
+import ExtPay from 'extpay';
+import { EXTPAY_ID, computeLicenseInfo, type LicenseInfo } from '../../shared/license';
 
 // Dynamic parser loading to avoid bundling issues
 const getHlsParser = async () => {
@@ -82,6 +84,47 @@ export default defineBackground(() => {
 
   // Store detected ads per tab (always enabled)
   const tabAds = new Map<number, DetectedAd[]>();
+
+  // --- ExtensionPay license management ---
+  const extpay = ExtPay(EXTPAY_ID);
+  extpay.startBackground();
+
+  let cachedLicense: LicenseInfo | null = null;
+
+  async function refreshLicense(): Promise<LicenseInfo | null> {
+    try {
+      const user = await extpay.getUser();
+      cachedLicense = computeLicenseInfo(user);
+      // Broadcast to all panels
+      chrome.runtime.sendMessage({
+        type: 'LICENSE_UPDATED',
+        payload: cachedLicense,
+      }).catch(() => {});
+      return cachedLicense;
+    } catch (err) {
+      console.debug('[PlaybackLab] License check failed (offline?):', err);
+      // Fail-open: if no cached license, grant access so paying users aren't blocked offline
+      if (!cachedLicense) {
+        cachedLicense = {
+          status: 'loading',
+          hasAccess: true,
+          trialStartedAt: null,
+          trialDaysRemaining: 0,
+          paid: false,
+          paidAt: null,
+          email: null,
+          subscriptionStatus: null,
+        };
+      }
+      return cachedLicense;
+    }
+  }
+
+  extpay.onPaid.addListener(() => { refreshLicense(); });
+  extpay.onTrialStarted.addListener(() => { refreshLicense(); });
+
+  // Initial license check
+  refreshLicense();
 
   // Manifest cache: store parsed manifests by streamId (avoids double-fetch with panel)
   const manifestCache = new Map<string, ParsedManifest>();
@@ -748,6 +791,44 @@ export default defineBackground(() => {
           });
         });
         return true;
+      }
+
+      // --- License message handlers ---
+      case 'CHECK_LICENSE': {
+        if (cachedLicense) {
+          sendResponse({ license: cachedLicense });
+        } else {
+          refreshLicense().then((license) => {
+            sendResponse({ license });
+          });
+          return true; // async
+        }
+        return false;
+      }
+
+      case 'START_TRIAL': {
+        extpay.openTrialPage('7-day');
+        sendResponse({ success: true });
+        return false;
+      }
+
+      case 'OPEN_PAYMENT': {
+        extpay.openPaymentPage();
+        sendResponse({ success: true });
+        return false;
+      }
+
+      case 'OPEN_LOGIN': {
+        extpay.openLoginPage();
+        sendResponse({ success: true });
+        return false;
+      }
+
+      case 'REFRESH_LICENSE': {
+        refreshLicense().then((license) => {
+          sendResponse({ license });
+        });
+        return true; // async
       }
 
       case 'SELECT_STREAM_FROM_PAGE': {

@@ -47,6 +47,34 @@ declare module 'm3u8-parser' {
   }
 }
 
+declare module 'extpay' {
+  interface ExtPayUser {
+    paid: boolean;
+    paidAt: Date | null;
+    installedAt: Date | null;
+    trialStartedAt: Date | null;
+    email: string | null;
+    subscriptionStatus: 'active' | 'past_due' | 'canceled' | null;
+  }
+
+  interface ExtPayInstance {
+    startBackground(): void;
+    getUser(): Promise<ExtPayUser>;
+    openPaymentPage(): Promise<void>;
+    openTrialPage(trialPeriod: string): Promise<void>;
+    openLoginPage(): Promise<void>;
+    onPaid: {
+      addListener(callback: (user: ExtPayUser) => void): void;
+    };
+    onTrialStarted: {
+      addListener(callback: (user: ExtPayUser) => void): void;
+    };
+  }
+
+  function ExtPay(extensionId: string): ExtPayInstance;
+  export default ExtPay;
+}
+
 declare module 'mpd-parser' {
   export function parse(manifestString: string, options?: { manifestUri?: string }): {
     duration?: number;

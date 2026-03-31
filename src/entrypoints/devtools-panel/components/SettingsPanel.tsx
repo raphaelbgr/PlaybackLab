@@ -5,6 +5,8 @@
 
 import { useSettings, type AppSettings } from '../../../shared/hooks/useSettings';
 import { DEFAULT_SHORTCUTS, formatShortcut } from '../../../shared/hooks/useKeyboardShortcuts';
+import { useLicense } from '../../../shared/hooks/useLicense';
+import { PRICE_DISPLAY } from '../../../shared/license';
 
 interface Props {
   isOpen: boolean;
@@ -13,6 +15,7 @@ interface Props {
 
 export function SettingsPanel({ isOpen, onClose }: Props) {
   const { settings, saveSettings, resetSettings, isLoaded } = useSettings();
+  const { license, openPayment, openLogin, refreshLicense } = useLicense();
 
   if (!isOpen) return null;
 
@@ -241,6 +244,99 @@ export function SettingsPanel({ isOpen, onClose }: Props) {
               </div>
             </section>
 
+            {/* Account & Subscription */}
+            <section className="settings-section">
+              <h3>Account & Subscription</h3>
+              <div className="account-section">
+                {license?.paid ? (
+                  <>
+                    <div className="account-status">
+                      <span className="trial-badge pro">PRO</span>
+                      {license.email && <span className="account-email">{license.email}</span>}
+                    </div>
+                    <p style={{ color: '#888', fontSize: '12px', margin: '4px 0 8px 0' }}>
+                      {license.subscriptionStatus === 'past_due'
+                        ? 'Payment past due — please update your billing info.'
+                        : 'You have full access to all features.'}
+                    </p>
+                    <button className="btn btn-secondary" onClick={openPayment} style={{ fontSize: '12px' }}>
+                      Manage Subscription
+                    </button>
+                  </>
+                ) : license?.status === 'trial_active' ? (
+                  <>
+                    <div className="account-status">
+                      <span className={`trial-badge${license.trialDaysRemaining <= 2 ? ' expiring' : ''}`}>
+                        {license.trialDaysRemaining}d trial remaining
+                      </span>
+                    </div>
+                    <p style={{ color: '#888', fontSize: '12px', margin: '4px 0 8px 0' }}>
+                      Subscribe now to keep access after your trial ends.
+                    </p>
+                    <button className="btn btn-primary" onClick={openPayment} style={{ fontSize: '12px' }}>
+                      Subscribe &mdash; {PRICE_DISPLAY}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ color: '#888', fontSize: '12px', margin: '0 0 8px 0' }}>
+                      {license?.status === 'trial_expired'
+                        ? 'Your trial has expired. Subscribe to regain access.'
+                        : 'Subscribe to unlock all features.'}
+                    </p>
+                    <button className="btn btn-primary" onClick={openPayment} style={{ fontSize: '12px' }}>
+                      Subscribe &mdash; {PRICE_DISPLAY}
+                    </button>
+                  </>
+                )}
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={openLogin}
+                    style={{ fontSize: '11px' }}
+                  >
+                    Log in
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={refreshLicense}
+                    style={{ fontSize: '11px' }}
+                    title="Re-check license from server"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Support */}
+            <section className="settings-section">
+              <h3>Support PlaybackLab</h3>
+              <p style={{ color: '#888', fontSize: '12px', margin: '0 0 8px 0' }}>
+                PlaybackLab is free and open source. If it helps your workflow, consider supporting development.
+              </p>
+              <div className="support-links" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <a
+                  href="https://github.com/sponsors/raphaelbgr"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary"
+                  style={{ fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  GitHub Sponsors
+                </a>
+                <a
+                  href="https://ko-fi.com/raphaelbgr"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary"
+                  style={{ fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  Ko-fi
+                </a>
+              </div>
+            </section>
+
             {/* Advanced */}
             <section className="settings-section">
               <h3>Advanced</h3>
@@ -273,12 +369,27 @@ export function SettingsPanel({ isOpen, onClose }: Props) {
         )}
 
         <div className="settings-footer">
-          <button className="btn btn-secondary" onClick={resetSettings}>
-            Reset to Defaults
-          </button>
-          <button className="btn btn-primary" onClick={onClose}>
-            Done
-          </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <span style={{ fontSize: '11px', color: '#666' }}>
+              PlaybackLab v0.1.0 &middot;{' '}
+              <a
+                href="https://github.com/raphaelbgr/PlaybackLab"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#4fc3f7', textDecoration: 'none' }}
+              >
+                Open Source
+              </a>
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-secondary" onClick={resetSettings}>
+                Reset to Defaults
+              </button>
+              <button className="btn btn-primary" onClick={onClose}>
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

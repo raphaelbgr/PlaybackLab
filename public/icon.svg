@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <linearGradient id="flask" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4fc3f7" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#0288d1" stop-opacity="0.9"/>
+    </linearGradient>
+    <linearGradient id="liquid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffb74d"/>
+      <stop offset="100%" stop-color="#ff9800"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="120" height="120" rx="24" ry="24" fill="url(#bg)"/>
+
+  <!-- Flask body outline -->
+  <path d="
+    M 50 28
+    L 50 52
+    L 32 82
+    Q 28 90 34 96
+    L 36 98
+    Q 40 102 48 102
+    L 80 102
+    Q 88 102 92 98
+    L 94 96
+    Q 100 90 96 82
+    L 78 52
+    L 78 28
+    Z
+  " fill="none" stroke="url(#flask)" stroke-width="3.5" stroke-linejoin="round"/>
+
+  <!-- Flask neck cap -->
+  <rect x="46" y="24" width="36" height="6" rx="3" fill="url(#flask)"/>
+
+  <!-- Liquid inside flask (bottom portion) -->
+  <path d="
+    M 38 80
+    Q 36 86 39 92
+    Q 42 98 48 100
+    L 80 100
+    Q 86 98 89 92
+    Q 92 86 90 80
+    Z
+  " fill="url(#liquid)" opacity="0.85"/>
+
+  <!-- Bubble 1 -->
+  <circle cx="55" cy="88" r="4" fill="#ffcc80" opacity="0.7"/>
+  <!-- Bubble 2 -->
+  <circle cx="72" cy="82" r="3" fill="#ffe0b2" opacity="0.6"/>
+  <!-- Bubble 3 -->
+  <circle cx="62" cy="76" r="2.5" fill="#fff3e0" opacity="0.5"/>
+
+  <!-- Play triangle (inside flask, above liquid) -->
+  <polygon points="56,52 56,72 74,62" fill="#4fc3f7" opacity="0.95"/>
+</svg>
